@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "name": "ats",
   "framework": "nextjs",
   "rootDirectory": "client",
   "installCommand": "npm install && npm install --prefix ../server --omit=dev"
