@@ -1,0 +1,14 @@
+{
+  "name": "ats-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Browser end-to-end tests for the ATS (Playwright)",
+  "scripts": {
+    "test": "playwright test",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "jszip": "^3.10.1"
+  }
+}

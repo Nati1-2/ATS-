@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  server:
+    name: API tests
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7
+        ports: ["27017:27017"]
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm test
+        env:
+          MONGODB_URI_TEST: mongodb://127.0.0.1:27017/ats_test
+
+  client:
+    name: Web build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  e2e:
+    name: Browser tests
+    runs-on: ubuntu-latest
+    needs: [server, client]
+    services:
+      mongo:
+        image: mongo:7
+        ports: ["27017:27017"]
+    env:
+      MONGODB_URI: mongodb://127.0.0.1:27017/ats
+      JWT_SECRET: ci-only-secret-that-is-long-enough-1234567890
+      CLIENT_URL: http://localhost:3000
+      NODE_ENV: development
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --prefix server && npm ci --prefix client && npm ci --prefix e2e
+      - run: npx --prefix e2e playwright install --with-deps chromium
+      - name: Start API and web app
+        run: |
+          npm run seed --prefix server
+          (cd server && node src/index.js > ../api.log 2>&1 &)
+          npm run build --prefix client
+          (cd client && npx next start -p 3000 > ../web.log 2>&1 &)
+          npx --yes wait-on@8.0.1 -t 120000 http://localhost:3000/api/health
+      - run: npm test --prefix e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            e2e/playwright-report
+            api.log
+            web.log
+
+  docker:
+    name: Production images
+    runs-on: ubuntu-latest
+    needs: [server, client]
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose -f docker-compose.prod.yml build
+        env:
+          JWT_SECRET: ci-only-placeholder-secret-not-used-at-runtime-000
+          CLIENT_URL: http://localhost:3000

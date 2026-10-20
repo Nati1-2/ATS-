@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased;
+}
+
+/* Visible focus ring for keyboard users everywhere. In the base layer so components that draw
+   their own focus ring (inputs, the chat box) can turn this one off with outline-none. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-blue-600);
+    outline-offset: 2px;
+  }
+}
+
+.prose-job p,
+.prose-job ul {
+  @apply mb-3 last:mb-0;
+}
+.prose-job ul {
+  @apply list-disc space-y-1 pl-5;
+}
+
+/* Printing (reports): white page, no app chrome, keep cards whole */
+@media print {
+  body {
+    @apply bg-white;
+  }
+  .break-inside-avoid {
+    break-inside: avoid;
+  }
+}

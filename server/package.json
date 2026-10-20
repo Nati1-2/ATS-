@@ -1,0 +1,39 @@
+{
+  "name": "ats-server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "nodemon --watch src src/index.js",
+    "start": "node src/index.js",
+    "seed": "node src/seed.js",
+    "test": "node --test --test-concurrency=1 \"test/**/*.test.js\"",
+    "create-admin": "node src/scripts/create-admin.js"
+  },
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@google/genai": "^2.30.0",
+    "@vercel/functions": "^3.10.1",
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^18.0.8",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.1",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "jszip": "^3.10.2",
+    "mongoose": "^8.24.5",
+    "morgan": "^1.12.1",
+    "multer": "^2.4.0",
+    "unpdf": "^1.9.0",
+    "word-extractor": "^1.0.4",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
