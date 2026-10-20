@@ -1,14 +1,18 @@
 /**
- * Vercel serverless entry point. Every request is rewritten here (see vercel.json);
- * the Express app keeps its own /api/... routing.
+ * Serverless request handler for Vercel. Used by the Next.js app (client/src/pages/api)
+ * so one deployment serves both the web app and the API.
  */
 import 'dotenv/config';
 import mongoose from 'mongoose';
 import { waitUntil } from '@vercel/functions';
-import { loadConfig } from '../src/config.js';
-import { createApp } from '../src/app.js';
-import { resumePendingAi, setBackgroundHook } from '../src/utils/aiQueue.js';
+import { loadConfig } from './config.js';
+import { createApp } from './app.js';
+import { resumePendingAi, setBackgroundHook } from './utils/aiQueue.js';
 
+// The web app is served from the same deployment, so its URL is a safe default for invite/reset links
+if (!process.env.CLIENT_URL && process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+  process.env.CLIENT_URL = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+}
 const config = loadConfig();
 const app = createApp();
 setBackgroundHook(waitUntil);

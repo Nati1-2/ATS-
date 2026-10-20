@@ -1,6 +1,11 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 /** @type {import('next').NextConfig} */
-// Where the Express API lives. Read at build time (rewrites are compiled into the build),
-// so Docker passes it as a build argument.
+// On Vercel the Express API runs inside this app (src/pages/api/[...path].mjs), so one deployment
+// serves both. Elsewhere it is a separate server, read at build time (rewrites are compiled into
+// the build), so Docker passes it as a build argument.
+const ON_VERCEL = Boolean(process.env.VERCEL);
 const API_URL = process.env.API_URL || 'http://localhost:5000';
 
 const securityHeaders = [
@@ -11,11 +16,15 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
-  output: process.env.VERCEL ? undefined : 'standalone', // self-contained server for the Docker image; Vercel builds its own
+  output: ON_VERCEL ? undefined : 'standalone', // self-contained server for the Docker image; Vercel builds its own
+  // The .mjs API bridge imports ../server, which only exists in the Vercel build
+  pageExtensions: ON_VERCEL ? ['js', 'jsx', 'mjs'] : ['js', 'jsx'],
+  outputFileTracingRoot: ON_VERCEL ? path.dirname(path.dirname(fileURLToPath(import.meta.url))) : undefined,
   poweredByHeader: false,
   devIndicators: false, // keep the dev build looking like production
   // Proxy API calls to the Express server so auth cookies stay same-origin.
   async rewrites() {
+    if (ON_VERCEL) return [];
     return [{ source: '/api/:path*', destination: `${API_URL}/api/:path*` }];
   },
   async headers() {

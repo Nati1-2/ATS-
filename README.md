@@ -70,49 +70,36 @@ npm run test:e2e    # browser tests (Playwright) against the running app
   - Each spec file re-seeds the demo data first.
 - **CI** (`.github/workflows/ci.yml`) runs on every push: server tests, the web build, the browser tests against a production build, and the Docker image build.
 
-## Deploying to Vercel (two projects)
+## Deploying to Vercel (one project)
 
-The frontend and the API deploy as two Vercel projects from this same repository.
+The web app and the API deploy together as **one** Vercel project. On Vercel, `client/src/pages/api/[...path].mjs` runs the Express API inside the Next.js app, so every `/api/*` request is handled on the same domain. Locally and in Docker, the API stays a separate server.
 
-**Database:** Vercel has no MongoDB. Create a free cluster on [MongoDB Atlas](https://www.mongodb.com/atlas) and allow access from anywhere (`0.0.0.0/0`), since Vercel IPs change.
+1. **Database:** create a free cluster on [MongoDB Atlas](https://www.mongodb.com/atlas), allow network access from anywhere (`0.0.0.0/0`), and copy the connection string (`mongodb+srv://USER:PASS@cluster0.xxxxx.mongodb.net/ats`).
+2. **Import:** at https://vercel.com/new, import `Nati1-2/ATS-` and set **Root Directory** to `client`. `client/vercel.json` also installs the server's dependencies during the build.
+3. **Environment variables:**
 
-### 1. Backend (API)
+   | Name | Value |
+   |---|---|
+   | `MONGODB_URI` | your Atlas connection string |
+   | `JWT_SECRET` | `openssl rand -hex 32` |
+   | `GEMINI_API_KEY` | optional, enables AI analysis |
+   | `CLIENT_URL` | optional; defaults to the project's production URL (set it if you use a custom domain) |
 
-In Vercel, choose **Add New → Project**, import `Nati1-2/ATS-`, and set **Root Directory** to `server`. Framework preset: **Other**. `server/vercel.json` routes every request to `server/api/index.js`.
+   Do **not** set `API_URL`.
+4. **Deploy.** `https://<project>.vercel.app/api/health` should return `{"ok":true,"db":true}`.
+5. **First admin:** run this locally against the Atlas database:
 
-Environment variables:
+   ```bash
+   MONGODB_URI="<atlas uri>" npm run create-admin --prefix server -- --email you@company.com --name "Your Name"
+   ```
 
-| Name | Value |
-|---|---|
-| `NODE_ENV` | `production` |
-| `MONGODB_URI` | your Atlas connection string |
-| `JWT_SECRET` | `openssl rand -hex 32` |
-| `CLIENT_URL` | the frontend URL, e.g. `https://ats-web.vercel.app` |
-| `GEMINI_API_KEY` | optional, enables AI analysis |
+After that, every push to `main` redeploys.
 
-After deploying, `https://<api-project>.vercel.app/api/health` should return `{"ok":true,"db":true}`.
+### Limitations on Vercel
 
-### 2. Frontend (web)
-
-Import the same repository as a second project, with **Root Directory** set to `client`. Framework preset: **Next.js**.
-
-| Name | Value |
-|---|---|
-| `API_URL` | the backend URL, e.g. `https://ats-api.vercel.app` (no trailing slash) |
-
-`API_URL` is read at build time, so redeploy the frontend after changing it. The browser only ever talks to the frontend, which proxies `/api/*` to the backend, so auth cookies keep working without CORS.
-
-### 3. First admin
-
-Run this locally against the Atlas database:
-
-```bash
-MONGODB_URI="<atlas uri>" npm run create-admin --prefix server -- --email you@company.com --name "Your Name"
-```
-
-### Limitation: uploaded files
-
-On Vercel, résumés and logos are written to `/tmp`. That folder is temporary and not shared between function instances, so uploaded files are lost (the data stored in MongoDB stays). For lasting file storage, use the Docker deployment below, or move uploads to object storage (Vercel Blob, S3 or MongoDB GridFS). AI rate-limit retries are also only picked up again when a new instance starts.
+- **Uploaded files are temporary.** Résumés and logos are written to `/tmp`, which is not kept or shared between function instances. Records in MongoDB are safe. For lasting file storage, use the Docker deployment below or move uploads to object storage (Vercel Blob, S3, MongoDB GridFS).
+- **Request bodies are capped at 4.5 MB** by Vercel, so résumés larger than that are rejected.
+- AI rate-limit retries are only picked up again when a new instance starts.
 
 ## Production deployment (Docker)
 
