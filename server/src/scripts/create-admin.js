@@ -3,7 +3,12 @@
  *   npm run create-admin -- --email you@company.com --name "Your Name"
  * The password is read from ADMIN_PASSWORD, or a strong one is generated and printed once.
  */
-import 'dotenv/config';
+import { config as loadEnv } from 'dotenv';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+loadEnv({ path: resolve(__dirname, '../../../.env') });
+loadEnv();
 import crypto from 'node:crypto';
 import { parseArgs } from 'node:util';
 import mongoose from 'mongoose';

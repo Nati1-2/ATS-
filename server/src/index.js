@@ -1,4 +1,8 @@
-import 'dotenv/config';
+import { config as loadEnv } from 'dotenv';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+loadEnv({ path: resolve(__dirname, '../../.env') });
 import mongoose from 'mongoose';
 import { loadConfig } from './config.js';
 import { createApp } from './app.js';

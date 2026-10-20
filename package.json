@@ -4,20 +4,28 @@
   "private": true,
   "description": "Applicant Tracking System — Next.js + Express + MongoDB",
   "scripts": {
-    "install:all": "npm install --prefix server && npm install --prefix client",
+    "install:server": "npm install --prefix server",
     "db:up": "docker compose up -d mongo",
     "db:down": "docker compose down",
     "seed": "npm run seed --prefix server",
     "dev:server": "npm run dev --prefix server",
-    "dev:client": "npm run dev --prefix client",
+    "dev:client": "next dev",
     "dev": "concurrently -n api,web -c blue,green \"npm:dev:server\" \"npm:dev:client\"",
-    "build": "npm run build --prefix client",
-    "start": "concurrently -n api,web \"npm start --prefix server\" \"npm start --prefix client\"",
+    "build": "next build",
+    "start": "concurrently -n api,web \"npm start --prefix server\" \"next start\"",
     "test": "npm test --prefix server",
     "test:e2e": "npm test --prefix e2e",
     "test:all": "npm test && npm run test:e2e"
   },
+  "dependencies": {
+    "lucide-react": "^0.468.0",
+    "next": "15.5.28",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
   "devDependencies": {
-    "concurrently": "^9.2.5"
+    "@tailwindcss/postcss": "^4",
+    "concurrently": "^9.2.5",
+    "tailwindcss": "^4"
   }
 }

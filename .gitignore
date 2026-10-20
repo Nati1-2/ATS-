@@ -1,7 +1,22 @@
 node_modules
 *.log
 .DS_Store
-.env.production
-.env.vercel
+
+# Next.js
+.next/
+out/
+build/
+
+# Environment
 .env
+.env.*
+!.env.example
+!.env.production.example
+!.env.vercel.example
+
+# Vercel
 .vercel
+
+# TypeScript / cache
+*.tsbuildinfo
+next-env.d.ts

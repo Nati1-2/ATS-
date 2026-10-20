@@ -1,8 +1,12 @@
 /**
- * Serverless request handler for Vercel. Used by the Next.js app (client/src/pages/api)
+ * Serverless request handler for Vercel. Used by the Next.js app (src/pages/api)
  * so one deployment serves both the web app and the API.
  */
-import 'dotenv/config';
+import { config as loadEnv } from 'dotenv';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+loadEnv({ path: resolve(__dirname, '../../.env') });
 import mongoose from 'mongoose';
 import { waitUntil } from '@vercel/functions';
 import { loadConfig } from './config.js';

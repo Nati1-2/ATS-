@@ -4,12 +4,13 @@ An applicant tracking system (ATS) for a single company, built with **Next.js** 
 
 ```
 ATS/
-├── server/   Express REST API + Mongoose (MongoDB), JWT auth, file uploads
-├── client/   Next.js 15 (App Router) + Tailwind CSS
-└── docker-compose.yml   MongoDB 7
+├── src/        Next.js 15 (App Router) + Tailwind CSS + Vercel API bridge
+├── server/     Express REST API + Mongoose (MongoDB), JWT auth, file uploads
+├── vercel.json Vercel single-project zero-config deployment
+└── .env.example Unified environment config
 ```
 
-The Next.js app proxies `/api/*` to the Express server (see `client/next.config.mjs`). The browser therefore talks to a single origin, so the httpOnly auth cookie works without any CORS setup.
+The Next.js app proxies `/api/*` to the Express server (see `next.config.mjs`). The browser therefore talks to a single origin, so the httpOnly auth cookie works without any CORS setup.
 
 ## Requirements
 
@@ -19,15 +20,14 @@ The Next.js app proxies `/api/*` to the Express server (see `client/next.config.
 ## Setup
 
 ```bash
-# 1. Install dependencies (root, server, client)
+# 1. Install dependencies
 npm install
-npm run install:all
+npm run install:server
 
-# 2. Configure environment
-cp server/.env.example server/.env        # then set JWT_SECRET to a long random string
-cp client/.env.example client/.env.local  # API_URL defaults to http://localhost:5000
+# 2. Configure environment (one .env for both frontend and backend)
+cp .env.example .env        # then set JWT_SECRET to a long random string
 
-# 3. Start MongoDB (skip if you use your own; set MONGODB_URI in server/.env)
+# 3. Start MongoDB (skip if you use your own; set MONGODB_URI in .env)
 npm run db:up
 
 # 4. Load demo data (this resets the database)
@@ -72,11 +72,12 @@ npm run test:e2e    # browser tests (Playwright) against the running app
 
 ## Deploying to Vercel (one project)
 
-The web app and the API deploy together as **one** Vercel project. On Vercel, `client/src/pages/api/[...path].mjs` runs the Express API inside the Next.js app, so every `/api/*` request is handled on the same domain. Locally and in Docker, the API stays a separate server.
+The web app and the API deploy together as **one** Vercel project with **one root**:
+On Vercel, `src/pages/api/[...path].mjs` serves the Express API directly inside the Next.js app, so every `/api/*` request is handled on the same domain without needing any separate backend deployment.
 
 1. **Database:** create a free cluster on [MongoDB Atlas](https://www.mongodb.com/atlas), allow network access from anywhere (`0.0.0.0/0`), and copy the connection string (`mongodb+srv://USER:PASS@cluster0.xxxxx.mongodb.net/ats`).
-2. **Import:** at https://vercel.com/new, import the repo. **No configuration needed** — the root `vercel.json` tells Vercel where to find the Next.js app and installs all dependencies.
-3. **Environment variables** (see `.env.vercel.example` for the full list):
+2. **Import:** at https://vercel.com/new, import the repo. **Zero configuration needed** — root directory is left as default `/` and `vercel.json` installs all dependencies automatically.
+3. **Environment variables** (add these in Vercel project Settings → Environment Variables):
 
    | Name | Value |
    |---|---|
