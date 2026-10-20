@@ -19,9 +19,8 @@ const nextConfig = {
   output: ON_VERCEL ? undefined : 'standalone', // self-contained server for the Docker image; Vercel builds its own
   // The .mjs API bridge imports ../server, which only exists in the Vercel build
   pageExtensions: ON_VERCEL ? ['js', 'jsx', 'mjs'] : ['js', 'jsx'],
-  // Include server/ in the Vercel build output so the API bridge can import it.
-  // Since next.config.mjs is now at the project root, the root dir is just __dirname.
-  outputFileTracingRoot: ON_VERCEL ? path.dirname(fileURLToPath(import.meta.url)) : undefined,
+  // Fix workspace root to project directory (prevents Next from scanning parent directories)
+  outputFileTracingRoot: path.dirname(fileURLToPath(import.meta.url)),
   poweredByHeader: false,
   devIndicators: false, // keep the dev build looking like production
   // Proxy API calls to the Express server so auth cookies stay same-origin.
