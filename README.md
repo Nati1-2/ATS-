@@ -75,8 +75,8 @@ npm run test:e2e    # browser tests (Playwright) against the running app
 The web app and the API deploy together as **one** Vercel project. On Vercel, `client/src/pages/api/[...path].mjs` runs the Express API inside the Next.js app, so every `/api/*` request is handled on the same domain. Locally and in Docker, the API stays a separate server.
 
 1. **Database:** create a free cluster on [MongoDB Atlas](https://www.mongodb.com/atlas), allow network access from anywhere (`0.0.0.0/0`), and copy the connection string (`mongodb+srv://USER:PASS@cluster0.xxxxx.mongodb.net/ats`).
-2. **Import:** at https://vercel.com/new, import `Nati1-2/ATS-` and set **Root Directory** to `client`. `client/vercel.json` also installs the server's dependencies during the build.
-3. **Environment variables:**
+2. **Import:** at https://vercel.com/new, import the repo. **No configuration needed** — the root `vercel.json` tells Vercel where to find the Next.js app and installs all dependencies.
+3. **Environment variables** (see `.env.vercel.example` for the full list):
 
    | Name | Value |
    |---|---|
