@@ -16,6 +16,7 @@ function CandidatesList() {
   const stage = params.get('stage') || '';
   const page = Number(params.get('page')) || 1;
   const minScore = params.get('minScore') || '';
+  const minAiFit = params.get('minAiFit') || '';
   const screening = params.get('screening') || '';
   const sort = params.get('sort') || '';
   const decision = params.get('decision') || '';
@@ -48,11 +49,11 @@ function CandidatesList() {
   }, [debouncedQ, debouncedKw]);
 
   const jobs = useApi('/jobs');
-  const { data, error, loading, reload } = useApi(`/candidates${qs({ q: params.get('q') || '', keywords: params.get('keywords') || '', job, stage, minScore, screening, decision, sort, page })}`);
+  const { data, error, loading, reload } = useApi(`/candidates${qs({ q: params.get('q') || '', keywords: params.get('keywords') || '', job, stage, minScore, minAiFit, screening, decision, sort, page })}`);
   useOnNewApplications(reload);
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.limit)) : 1;
-  const filtered = Boolean(params.get('q') || params.get('keywords') || job || stage || minScore || screening || decision);
-  const advancedCount = [params.get('keywords'), minScore, screening, decision].filter(Boolean).length;
+  const filtered = Boolean(params.get('q') || params.get('keywords') || job || stage || minScore || minAiFit || screening || decision);
+  const advancedCount = [params.get('keywords'), minScore, minAiFit, screening, decision].filter(Boolean).length;
   const [showMore, setShowMore] = useState(advancedCount > 0);
   const jobTitle = jobs.data?.jobs.find((j) => j._id === job)?.title;
   const clearAll = () => {
@@ -68,13 +69,14 @@ function CandidatesList() {
     stage && { key: 'stage', label: `Stage: ${STAGES.find((s) => s.value === stage)?.label}`, clear: () => update({ stage: '' }) },
     params.get('keywords') && { key: 'kw', label: `CV contains: ${params.get('keywords')}`, clear: () => (setKw(''), setDebouncedKw(''), update({ keywords: '' })) },
     minScore && { key: 'min', label: `Match ≥ ${minScore}%`, clear: () => update({ minScore: '' }) },
+    minAiFit && { key: 'ai', label: `AI fit ≥ ${minAiFit}%`, clear: () => update({ minAiFit: '' }) },
     screening && { key: 'scr', label: screening === 'passed' ? 'Passed screening' : 'Failed screening', clear: () => update({ screening: '' }) },
     decision && { key: 'dec', label: { advanced: 'Auto-shortlisted', review: 'Needs review', rejected: 'Auto-rejected' }[decision], clear: () => update({ decision: '' }) },
   ].filter(Boolean);
 
   return (
     <div onClickCapture={onClickCapture}>
-      <PageHeader title="Candidates" description="Every application with its own hiring stage. Filter by CV content, match score, and screening results." />
+      <PageHeader title="Candidates" description="Every application with its own hiring stage. Filter by CV content, match score, AI fit, and screening results." />
       <Card>
         <div className="space-y-3 border-b border-slate-200 p-4">
           <div className="flex flex-col gap-3 lg:flex-row">
@@ -129,13 +131,14 @@ function CandidatesList() {
                 <select id="cand-sort" value={sort} onChange={(e) => update({ sort: e.target.value })} className={inputClass()}>
                   <option value="">Newest first</option>
                   <option value="score">Best match first</option>
+                  <option value="ai">Best AI fit first</option>
                 </select>
               </div>
             </div>
           </div>
 
           {showMore && (
-            <div id="cand-more-filters" className="grid grid-cols-1 gap-3 rounded-lg bg-slate-50 p-3 ring-1 ring-inset ring-slate-200 sm:grid-cols-2 lg:grid-cols-4">
+            <div id="cand-more-filters" className="grid grid-cols-1 gap-3 rounded-lg bg-slate-50 p-3 ring-1 ring-inset ring-slate-200 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
               <div>
                 <label htmlFor="cand-keywords" className="mb-1 block text-xs font-medium text-slate-600">
                   Search inside CVs
@@ -152,6 +155,19 @@ function CandidatesList() {
                 <select id="cand-score" value={minScore} onChange={(e) => update({ minScore: e.target.value })} className={inputClass()}>
                   <option value="">Any match</option>
                   {[90, 75, 50, 25].map((n) => (
+                    <option key={n} value={n}>
+                      {n}% or more
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="cand-ai-fit" className="mb-1 block text-xs font-medium text-slate-600">
+                  Minimum AI fit
+                </label>
+                <select id="cand-ai-fit" value={minAiFit} onChange={(e) => update({ minAiFit: e.target.value })} className={inputClass()}>
+                  <option value="">Any AI fit</option>
+                  {[80, 60, 40].map((n) => (
                     <option key={n} value={n}>
                       {n}% or more
                     </option>

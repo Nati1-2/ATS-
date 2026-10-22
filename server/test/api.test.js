@@ -312,6 +312,20 @@ test('AI: rate limits are retried later automatically, then the analysis complet
   assert.equal(saved.ai.fitLevel, 'good');
 });
 
+test('candidates can be filtered and sorted by AI fit', opts, async () => {
+  const { Application } = await import('../src/models/index.js');
+  const [a, b, c] = await Application.find({}).sort({ createdAt: 1 });
+  await Application.updateOne({ _id: a._id }, { $set: { ai: { status: 'done', fitLevel: 'good', fitScore: 70 } } });
+  await Application.updateOne({ _id: b._id }, { $set: { ai: { status: 'done', fitLevel: 'strong', fitScore: 90 } } });
+  await Application.updateOne({ _id: c._id }, { $set: { ai: { status: 'done', fitLevel: 'weak', fitScore: 20 } } });
+
+  const filtered = (await rec('GET', '/candidates?minAiFit=60')).body.applications;
+  assert.deepEqual(filtered.map((x) => x._id).sort(), [a._id.toString(), b._id.toString()].sort());
+
+  const sorted = (await rec('GET', '/candidates?sort=ai')).body.applications;
+  assert.deepEqual(sorted.slice(0, 3).map((x) => x.ai.fitScore), [90, 70, 20]);
+});
+
 test('rate limit: successful sign-ins never count, repeated failures are blocked with a clear message', opts, async () => {
   const c = client();
   for (let i = 0; i < 10; i++) {

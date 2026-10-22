@@ -6,9 +6,14 @@ import { HttpError, assertObjectId, escapeRegex } from '../utils/http.js';
 
 const router = Router();
 
+const SORTS = {
+  score: { 'match.score': -1, createdAt: -1 },
+  ai: { 'ai.fitScore': -1, createdAt: -1 }, // applicants without an AI analysis sort last
+};
+
 /** One row per application, so a candidate who applied to two jobs appears twice (each with its own stage). */
 router.get('/', async (req, res) => {
-  const { q, job, stage, keywords, minScore, screening, sort, decision } = req.query;
+  const { q, job, stage, keywords, minScore, minAiFit, screening, sort, decision } = req.query;
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
 
@@ -25,6 +30,8 @@ router.get('/', async (req, res) => {
   if (['rejected', 'advanced', 'review'].includes(decision)) match.autoDecision = decision;
   const min = Number(minScore);
   if (minScore && Number.isFinite(min) && min > 0) match['match.score'] = { $gte: Math.min(min, 100) };
+  const minAi = Number(minAiFit);
+  if (minAiFit && Number.isFinite(minAi) && minAi > 0) match['ai.fitScore'] = { $gte: Math.min(minAi, 100) };
   // CV keyword search: every comma-separated term must appear in the résumé text or cover letter
   if (typeof keywords === 'string' && keywords.trim()) {
     const terms = keywords.split(',').map((t) => t.trim()).filter(Boolean).slice(0, 10);
@@ -46,7 +53,7 @@ router.get('/', async (req, res) => {
   pipeline.push(
     { $lookup: { from: 'jobs', localField: 'job', foreignField: '_id', as: 'job' } },
     { $unwind: '$job' },
-    { $sort: sort === 'score' ? { 'match.score': -1, createdAt: -1 } : { createdAt: -1 } },
+    { $sort: SORTS[sort] ?? { createdAt: -1 } },
     {
       $facet: {
         rows: [
