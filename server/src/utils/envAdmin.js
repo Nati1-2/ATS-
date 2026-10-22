@@ -2,8 +2,9 @@ import bcrypt from 'bcryptjs';
 import { User } from '../models/index.js';
 
 /**
- * Keep the admin account named in .env (ADMIN_EMAIL / ADMIN_PASSWORD / ADMIN_NAME) able to sign in:
- * created on first start, and re-activated / re-promoted / given the .env password if it drifted.
+ * Bootstrap the first admin from .env (ADMIN_EMAIL / ADMIN_PASSWORD / ADMIN_NAME) on an empty install.
+ * After that the database is the source of truth: once any active admin exists, .env is ignored and
+ * existing accounts are never changed. Use `npm run create-admin` to recover a lost admin password.
  * Does nothing when ADMIN_EMAIL or ADMIN_PASSWORD is unset.
  */
 export async function ensureEnvAdmin(env = process.env) {
@@ -11,24 +12,15 @@ export async function ensureEnvAdmin(env = process.env) {
   const password = env.ADMIN_PASSWORD;
   if (!email || !password) return null;
 
-  const existing = await User.findOne({ email }).select('+passwordHash');
-  if (!existing) {
-    const user = await User.create({
-      email,
-      name: env.ADMIN_NAME?.trim() || 'Administrator',
-      role: 'admin',
-      passwordHash: await bcrypt.hash(password, 10),
-    });
-    console.log(`Admin account created from .env: ${email}`);
-    return user;
-  }
+  if (await User.exists({ role: 'admin', active: true })) return null;
+  if (await User.exists({ email })) return null;
 
-  const passwordMatches = await bcrypt.compare(password, existing.passwordHash);
-  if (existing.role !== 'admin' || !existing.active || !passwordMatches) {
-    existing.set({ role: 'admin', active: true });
-    if (!passwordMatches) existing.passwordHash = await bcrypt.hash(password, 10);
-    await existing.save();
-    console.log(`Admin account synced from .env: ${email}`);
-  }
-  return existing;
+  const user = await User.create({
+    email,
+    name: env.ADMIN_NAME?.trim() || 'Administrator',
+    role: 'admin',
+    passwordHash: await bcrypt.hash(password, 10),
+  });
+  console.log(`First admin account created from .env: ${email}`);
+  return user;
 }

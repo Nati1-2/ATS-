@@ -46,7 +46,7 @@ npm run dev
 
 Open **http://localhost:3000**. The root URL redirects to the public careers site. Team members sign in at `/login`.
 
-**Admin login from `.env`.** When `ADMIN_EMAIL` and `ADMIN_PASSWORD` are set, the API creates that admin on start (or, if it already exists, makes it an active admin again and applies the `.env` password). To reset the admin password, change it in `.env` and restart. Once signed in, the admin creates accounts for other people under **Settings → Team members → Create an account**: name, email, role (Admin, Recruiter, Hiring manager) and a password to share with them. Invite links still work as an alternative.
+**Admin login.** Accounts live in the database and sign-in always checks it. On an empty install, when `ADMIN_EMAIL` and `ADMIN_PASSWORD` are set, the API creates that first admin on start; once any active admin exists, `.env` is ignored and never changes stored accounts. To recover a lost admin password, run `npm run create-admin --prefix server -- --email you@company.com`. Once signed in, the admin creates accounts for other people under **Settings → Team members → Create an account**: name, email, role (Admin, Recruiter, Hiring manager) and a password to share with them. Invite links still work as an alternative.
 
 ### Demo accounts
 

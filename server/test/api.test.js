@@ -105,20 +105,30 @@ test('login: wrong password is rejected, right one sets a session', opts, async 
   assert.equal((await hm('POST', '/auth/login', { email: 'hm@t.test', password: 'Password123!' })).status, 200);
 });
 
-test('admin from .env: created on start, and its password is re-synced from .env', opts, async () => {
+test('admin from .env: only bootstraps an empty install; the database stays the source of truth', opts, async () => {
   const { ensureEnvAdmin } = await import('../src/utils/envAdmin.js');
   const env = { ADMIN_EMAIL: 'Boss@T.test', ADMIN_PASSWORD: 'EnvPassword1', ADMIN_NAME: 'Boss' };
-  await ensureEnvAdmin(env);
-  const boss = client();
-  assert.equal((await boss('POST', '/auth/login', { email: 'boss@t.test', password: 'EnvPassword1' })).body.user.role, 'admin');
+  // An active admin already exists, so .env is ignored
+  assert.equal(await ensureEnvAdmin(env), null);
+  assert.equal(await User.exists({ email: 'boss@t.test' }), null);
 
-  await User.updateOne({ email: 'boss@t.test' }, { role: 'recruiter', active: false });
-  await ensureEnvAdmin({ ...env, ADMIN_PASSWORD: 'EnvPassword2' });
-  // Checked directly rather than by a failed login, which would count towards the rate-limit test's budget
-  const { passwordHash } = await User.findOne({ email: 'boss@t.test' }).select('+passwordHash');
-  assert.equal(await bcrypt.compare('EnvPassword1', passwordHash), false);
-  assert.equal((await boss('POST', '/auth/login', { email: 'boss@t.test', password: 'EnvPassword2' })).body.user.role, 'admin');
-  assert.equal(await ensureEnvAdmin({}), null);
+  const admins = await User.find({ role: 'admin', active: true }).select('_id');
+  await User.updateMany({ _id: { $in: admins } }, { active: false });
+  try {
+    await ensureEnvAdmin(env);
+    const boss = client();
+    assert.equal((await boss('POST', '/auth/login', { email: 'boss@t.test', password: 'EnvPassword1' })).body.user.role, 'admin');
+
+    // Later .env changes never touch the stored account
+    await ensureEnvAdmin({ ...env, ADMIN_PASSWORD: 'EnvPassword2' });
+    // Checked directly rather than by a failed login, which would count towards the rate-limit test's budget
+    const { passwordHash } = await User.findOne({ email: 'boss@t.test' }).select('+passwordHash');
+    assert.equal(await bcrypt.compare('EnvPassword1', passwordHash), true);
+    assert.equal(await ensureEnvAdmin({}), null);
+  } finally {
+    await User.deleteOne({ email: 'boss@t.test' });
+    await User.updateMany({ _id: { $in: admins } }, { active: true });
+  }
 });
 
 test('admin creates accounts in any role; others cannot', opts, async () => {
