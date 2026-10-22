@@ -3,8 +3,8 @@
  * Small in-process queue (2 at a time); unfinished work is picked up again on restart.
  */
 import { Application, Job } from '../models/index.js';
-import { aiEnabled, analyzeApplication, resumeFilePath } from './ai.js';
-import { UPLOAD_DIR } from './uploads.js';
+import { aiEnabled, analyzeApplication } from './ai.js';
+import { fetchFile } from './uploads.js';
 import { scoreApplication } from './scoring.js';
 import { decideApplication, applyDecision } from './screening.js';
 import { logActivity } from './activity.js';
@@ -59,7 +59,7 @@ export async function processApplication(id, deps = {}) {
   const result = await analyzeApplication(
     {
       job,
-      resumePath: app.resume?.filename ? resumeFilePath(UPLOAD_DIR, app.resume.filename) : null,
+      resumePath: app.resume?.filename ? await fetchFile('resumes', app.resume.filename) : null,
       resumeMime: app.resume?.mimetype,
       resumeText: app.resumeText,
       coverLetter: app.coverLetter,

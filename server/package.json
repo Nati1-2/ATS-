@@ -8,7 +8,8 @@
     "start": "node src/index.js",
     "seed": "node src/seed.js",
     "test": "node --test --test-concurrency=1 \"test/**/*.test.js\"",
-    "create-admin": "node src/scripts/create-admin.js"
+    "create-admin": "node src/scripts/create-admin.js",
+    "sample-data": "node src/scripts/add-sample-data.js"
   },
   "license": "ISC",
   "type": "module",

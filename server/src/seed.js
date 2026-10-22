@@ -9,7 +9,7 @@ import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import { User, Invite, Company, Job, Candidate, Application, Note, Interview, Activity, Report, CvCheck } from './models/index.js';
-import { UPLOAD_DIR } from './utils/uploads.js';
+import { UPLOAD_DIR, persistFile } from './utils/uploads.js';
 import { STAGE_LABELS } from './utils/activity.js';
 import { extractResumeText, scoreApplication, evaluateScreening, decideApplication } from './utils/screening.js';
 import { decideWithAi, applyAiDecision } from './utils/aiScreening.js';
@@ -58,6 +58,7 @@ async function main() {
   await Promise.all([User, Invite, Company, Job, Candidate, Application, Note, Interview, Activity, Report, CvCheck].map((m) => m.deleteMany({})));
   const resumeDir = path.join(UPLOAD_DIR, 'resumes');
   for (const f of fs.readdirSync(resumeDir)) fs.unlinkSync(path.join(resumeDir, f));
+  await new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: 'uploads' }).drop().catch(() => {});
 
   await Company.create({
     name: 'Acme Labs',
@@ -241,6 +242,7 @@ async function main() {
       `  ${skills}`,
     ]);
     fs.writeFileSync(path.join(resumeDir, filename), pdf);
+    await persistFile('resumes', { path: path.join(resumeDir, filename), filename, mimetype: 'application/pdf' });
     const createdAt = ago(daysAgo, 3);
     const coverLetter = `Dear hiring team,\n\nI am excited to apply for the ${job.title} role at Acme Labs. I believe my background is a strong fit and I would love to contribute to your mission.\n\nBest regards,\n${cand.fullName}`;
     const resumeText = await extractResumeText(path.join(resumeDir, filename), 'application/pdf');

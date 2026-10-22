@@ -8,6 +8,7 @@
     "db:up": "docker compose up -d mongo",
     "db:down": "docker compose down",
     "seed": "npm run seed --prefix server",
+    "sample-data": "npm run sample-data --prefix server",
     "dev:server": "npm run dev --prefix server",
     "dev:client": "next dev",
     "dev": "concurrently -n api,web -c blue,green \"npm:dev:server\" \"npm:dev:client\"",

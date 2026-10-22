@@ -1,12 +1,11 @@
 import { Router } from 'express';
-import path from 'node:path';
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { User, Invite, Job, ROLES, getCompany } from '../models/index.js';
 import { requireRole } from '../middleware/auth.js';
 import { HttpError, validate, assertObjectId } from '../utils/http.js';
-import { logoUpload, removeFile, UPLOAD_DIR } from '../utils/uploads.js';
+import { logoUpload, persistFile, deleteStoredFile } from '../utils/uploads.js';
 import { publicCompany } from './public.js';
 import { publicUser, hashToken } from './auth.js';
 
@@ -41,13 +40,15 @@ router.put('/company', adminOnly, logoUpload.single('logo'), async (req, res) =>
     const company = await getCompany();
     const oldLogo = company.logo?.filename;
     company.set(data);
-    if (req.file) company.logo = { filename: req.file.filename, mimetype: req.file.mimetype };
-    else if (removeLogo === 'true') company.logo = undefined;
+    if (req.file) {
+      await persistFile('logos', req.file);
+      company.logo = { filename: req.file.filename, mimetype: req.file.mimetype };
+    } else if (removeLogo === 'true') company.logo = undefined;
     await company.save();
-    if (oldLogo && oldLogo !== company.logo?.filename) removeFile(path.join(UPLOAD_DIR, 'logos', oldLogo));
+    if (oldLogo && oldLogo !== company.logo?.filename) await deleteStoredFile('logos', oldLogo);
     res.json({ company: publicCompany(company) });
   } catch (err) {
-    if (req.file) removeFile(req.file.path);
+    if (req.file) await deleteStoredFile('logos', req.file.filename);
     throw err;
   }
 });

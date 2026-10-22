@@ -253,6 +253,13 @@ test('résumés are private: anonymous 401, recruiter can download', opts, async
   const dl = await rec('GET', `/applications/${id}/resume`);
   assert.equal(dl.status, 200);
   assert.ok(dl.body.byteLength > 0);
+
+  // Files are kept in the database, so a new server instance with an empty upload folder still serves them
+  const dir = path.join(process.env.UPLOAD_DIR, 'resumes');
+  for (const f of fs.readdirSync(dir)) fs.unlinkSync(path.join(dir, f));
+  const again = await rec('GET', `/applications/${id}/resume`);
+  assert.equal(again.status, 200);
+  assert.deepEqual(Buffer.from(again.body), Buffer.from(dl.body));
 });
 
 test('hiring managers only see their assigned jobs and cannot move stages', opts, async () => {

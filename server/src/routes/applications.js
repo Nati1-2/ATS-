@@ -1,11 +1,10 @@
 import { Router } from 'express';
-import path from 'node:path';
 import fs from 'node:fs';
 import { z } from 'zod';
 import { Application, Note, Interview, User, STAGES } from '../models/index.js';
 import { assertJobAccess, accessibleJobIds, canManageHiring, requireRole } from '../middleware/auth.js';
 import { HttpError, validate, assertObjectId } from '../utils/http.js';
-import { UPLOAD_DIR } from '../utils/uploads.js';
+import { fetchFile } from '../utils/uploads.js';
 import { logActivity, STAGE_LABELS } from '../utils/activity.js';
 import { aiEnabled } from '../utils/ai.js';
 import { enqueueAi } from '../utils/aiQueue.js';
@@ -91,8 +90,8 @@ router.get('/:id/ai', async (req, res) => {
 router.get('/:id/resume', async (req, res) => {
   const app = await loadApplication(req);
   if (!app.resume?.filename) throw new HttpError(404, 'No résumé on file');
-  const filePath = path.join(UPLOAD_DIR, 'resumes', path.basename(app.resume.filename));
-  if (!fs.existsSync(filePath)) throw new HttpError(404, 'Résumé file is missing');
+  const filePath = await fetchFile('resumes', app.resume.filename);
+  if (!filePath) throw new HttpError(404, 'Résumé file is missing');
   const inline = req.query.inline === '1' && app.resume.mimetype === 'application/pdf';
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');

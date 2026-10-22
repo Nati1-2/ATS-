@@ -9,7 +9,6 @@
  * Enabled only when GEMINI_API_KEY is set. Model is configurable with GEMINI_MODEL.
  */
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import { GoogleGenAI, Type } from '@google/genai';
 
 export const AI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
@@ -272,5 +271,3 @@ export function friendlyError(err) {
   if (err.status === 400 || err.status === 403) return `AI request rejected (${err.status}): check the API key and model`;
   return err.message?.slice(0, 200) || 'AI request failed';
 }
-
-export const resumeFilePath = (uploadDir, filename) => path.join(uploadDir, 'resumes', path.basename(filename));

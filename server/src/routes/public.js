@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { Job, Candidate, Application, getCompany } from '../models/index.js';
 import { HttpError, validate, assertObjectId, escapeRegex } from '../utils/http.js';
-import { resumeUpload, verifyResumeSignature, removeFile, UPLOAD_DIR, MAX_RESUME_MB, RESUME_MIME } from '../utils/uploads.js';
+import { resumeUpload, verifyResumeSignature, persistFile, fetchFile, deleteStoredFile, MAX_RESUME_MB, RESUME_MIME } from '../utils/uploads.js';
 import path from 'node:path';
 import { logActivity } from '../utils/activity.js';
 import { applyLimiter } from '../middleware/rateLimits.js';
@@ -34,10 +34,11 @@ router.get('/company', async (_req, res) => {
 
 router.get('/logo', async (_req, res) => {
   const company = await getCompany();
-  if (!company.logo?.filename) throw new HttpError(404, 'No logo');
+  const filePath = company.logo?.filename && (await fetchFile('logos', company.logo.filename));
+  if (!filePath) throw new HttpError(404, 'No logo');
   res.type(company.logo.mimetype);
   res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'"); // safe SVG serving
-  res.sendFile(path.join(UPLOAD_DIR, 'logos', company.logo.filename));
+  res.sendFile(filePath);
 });
 
 router.get('/jobs', async (req, res) => {
@@ -154,6 +155,7 @@ router.post('/jobs/:id/apply', applyLimiter, resumeUpload.single('resume'), asyn
       application,
       decideApplication(fullJob, { match, screeningPassed: screening.passed, resumeReadable: resumeText.length > 0 })
     );
+    await persistFile('resumes', file);
     await application.save();
     await logActivity({ application, type: 'applied', message: `Applied for ${job.title}${match ? ` (match ${match.score}%)` : ''}` });
     if (decision) await logActivity({ application, ...decision });
@@ -161,7 +163,7 @@ router.post('/jobs/:id/apply', applyLimiter, resumeUpload.single('resume'), asyn
     // The applicant always sees the same confirmation, whatever the screening outcome.
     res.status(201).json({ ok: true, applicationId: application._id });
   } catch (err) {
-    if (file) removeFile(file.path);
+    if (file) await deleteStoredFile('resumes', file.filename);
     throw err;
   }
 });

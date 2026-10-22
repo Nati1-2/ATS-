@@ -5,9 +5,9 @@ import { Application, CvCheck, Job } from '../models/index.js';
 import { assertJobAccess } from '../middleware/auth.js';
 import { aiCvCheckLimiter } from '../middleware/rateLimits.js';
 import { HttpError, validate, assertObjectId } from '../utils/http.js';
-import { resumeUpload, verifyResumeSignature, removeFile, UPLOAD_DIR } from '../utils/uploads.js';
+import { resumeUpload, verifyResumeSignature, removeFile, fetchFile } from '../utils/uploads.js';
 import { extractResumeText } from '../utils/screening.js';
-import { aiEnabled, resumeFilePath } from '../utils/ai.js';
+import { aiEnabled } from '../utils/ai.js';
 import { quickChecks, reviewCv } from '../utils/cvChecker.js';
 
 const router = Router();
@@ -45,7 +45,7 @@ router.post('/', aiCvCheckLimiter, resumeUpload.single('resume'), async (req, re
       source = 'application';
       Object.assign(meta, { application: app._id, candidateName: app.candidate?.fullName, fileName: app.resume?.originalName });
       text = app.resumeText || '';
-      if (!text && app.resume?.mimetype === 'application/pdf') pdfPath = resumeFilePath(UPLOAD_DIR, app.resume.filename);
+      if (!text && app.resume?.mimetype === 'application/pdf') pdfPath = await fetchFile('resumes', app.resume.filename);
     } else if (body.text) {
       if (body.text.length < 100) throw new HttpError(400, 'Please correct the highlighted fields', { text: 'Paste the whole CV (at least 100 characters)' });
       source = 'paste';

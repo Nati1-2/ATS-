@@ -97,18 +97,21 @@ On Vercel, `src/pages/api/[...path].mjs` serves the Express API directly inside 
 
    Do **not** set `API_URL`.
 4. **Deploy.** `https://<project>.vercel.app/api/health` should return `{"ok":true,"db":true}`.
-5. **First admin:** run this locally against the Atlas database:
+5. **First admin:** either set `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_NAME` in Vercel (used only while the database has no admin), or run this locally against the Atlas database:
 
    ```bash
    MONGODB_URI="<atlas uri>" npm run create-admin --prefix server -- --email you@company.com --name "Your Name"
    ```
 
+6. **Careers content (optional):** `npm run sample-data` fills an empty company profile and adds sample published jobs without deleting anything. Replace them with real content under **Settings → Company** and **Jobs** before going live.
+
 After that, every push to `main` redeploys.
 
-### Limitations on Vercel
+### Notes on Vercel
 
-- **Uploaded files are temporary.** Résumés and logos are written to `/tmp`, which is not kept or shared between function instances. Records in MongoDB are safe. For lasting file storage, use the Docker deployment below or move uploads to object storage (Vercel Blob, S3, MongoDB GridFS).
-- **Request bodies are capped at 4.5 MB** by Vercel, so résumés larger than that are rejected.
+- **Uploaded files are kept in MongoDB** (GridFS bucket `uploads`), so résumés and logos survive redeploys and are shared by every function instance; `/tmp` is only a cache. Back up the database and you have everything.
+- **Résumés are limited to 4 MB on Vercel** (whatever `MAX_RESUME_MB` says), because Vercel rejects request bodies over 4.5 MB.
+- **Rate limits are per function instance**, so they are looser than on a single server.
 - AI rate-limit retries are only picked up again when a new instance starts.
 
 ## Production deployment (Docker)
@@ -120,7 +123,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 - **Three containers:** MongoDB, the API and the web app. Only the web app is published (on `WEB_PORT`, default 3000); the API and database stay on the internal network.
 - **HTTPS:** put the web app behind a reverse proxy such as Caddy, Nginx or a cloud load balancer. Keep `COOKIE_SECURE=true`. Use `false` only for a plain-HTTP trial on a private network.
-- **Persistent data:** the database and uploaded CVs live in Docker volumes (`mongo-data`, `uploads`), so they survive rebuilds and restarts. Back up both volumes.
+- **Persistent data:** the database, including uploaded CVs and logos (GridFS), lives in the `mongo-data` volume, so it survives rebuilds and restarts. Back it up; the `uploads` volume is only a cache.
 - **Safety:**
   - The API checks its configuration at startup and refuses to start with a weak or missing `JWT_SECRET`.
   - It shuts down gracefully on restart.
@@ -156,7 +159,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 **Résumés**:
 - Accepted formats are PDF, DOC, DOCX, ODT, RTF and TXT, up to `MAX_RESUME_MB` (5 MB by default).
 - Files are checked on the client (extension, type, size) and again on the server (extension, MIME type, size, and the file's magic bytes).
-- Files are stored in `server/uploads/resumes`. They are not publicly served and can only be downloaded through an authenticated, permission-checked endpoint.
+- Files are stored in MongoDB (GridFS bucket `uploads`), with `server/uploads` as a local cache. They are not publicly served and can only be downloaded through an authenticated, permission-checked endpoint.
 - PDFs can be previewed inline. Other formats can only be downloaded.
 
 **CV screening** (`server/src/utils/screening.js`): this works the way common ATSs screen CVs, with no AI involved.
@@ -314,5 +317,6 @@ These were out of scope by design:
 ```bash
 npm test             # run all tests
 npm run seed         # reset the development database to demo data
+npm run sample-data  # add sample company info and published jobs without deleting anything
 npm run db:down      # stop the development MongoDB (data persists in a Docker volume)
 ```

@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { pipeline } from 'node:stream/promises';
+import mongoose from 'mongoose';
 import multer from 'multer';
 import { fileURLToPath } from 'node:url';
 import { HttpError } from './http.js';
@@ -14,7 +16,9 @@ export const UPLOAD_DIR = process.env.UPLOAD_DIR
 fs.mkdirSync(path.join(UPLOAD_DIR, 'resumes'), { recursive: true });
 fs.mkdirSync(path.join(UPLOAD_DIR, 'logos'), { recursive: true });
 
-export const MAX_RESUME_MB = Number(process.env.MAX_RESUME_MB || 5);
+// Vercel rejects request bodies over 4.5 MB before they reach us, so leave room for the rest of the form there
+const configuredResumeMb = Number(process.env.MAX_RESUME_MB || 5);
+export const MAX_RESUME_MB = process.env.VERCEL ? Math.min(configuredResumeMb, 4) : configuredResumeMb;
 const MAX_LOGO_MB = 2;
 
 const GENERIC = ['application/octet-stream', ''];
@@ -95,4 +99,35 @@ export function verifyResumeSignature(filePath) {
 
 export function removeFile(filePath) {
   fs.promises.unlink(filePath).catch(() => {});
+}
+
+// Kept files (résumés, logos) are stored in MongoDB (GridFS) so they survive restarts, redeploys and
+// serverless instances (Vercel's /tmp is per instance). UPLOAD_DIR is only a local cache of them.
+const bucket = () => new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: 'uploads' });
+const storedName = (subdir, filename) => `${subdir}/${path.basename(filename)}`;
+const localPath = (subdir, filename) => path.join(UPLOAD_DIR, subdir, path.basename(filename));
+
+/** Save an uploaded file (from multer) to the database. */
+export async function persistFile(subdir, file) {
+  const upload = bucket().openUploadStream(storedName(subdir, file.filename), { metadata: { contentType: file.mimetype } });
+  await pipeline(fs.createReadStream(file.path), upload);
+}
+
+/** Local path of a kept file, fetched from the database into the cache if needed; null when it does not exist. */
+export async function fetchFile(subdir, filename) {
+  const target = localPath(subdir, filename);
+  if (fs.existsSync(target)) return target;
+  const [doc] = await bucket().find({ filename: storedName(subdir, filename) }).limit(1).toArray();
+  if (!doc) return null;
+  const partial = `${target}.${crypto.randomUUID()}.part`;
+  await pipeline(bucket().openDownloadStream(doc._id), fs.createWriteStream(partial));
+  await fs.promises.rename(partial, target);
+  return target;
+}
+
+/** Remove a kept file from the database and the local cache. */
+export async function deleteStoredFile(subdir, filename) {
+  removeFile(localPath(subdir, filename));
+  const docs = await bucket().find({ filename: storedName(subdir, filename) }).toArray();
+  await Promise.all(docs.map((d) => bucket().delete(d._id).catch(() => {})));
 }
