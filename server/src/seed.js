@@ -5,7 +5,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 loadEnv({ path: path.resolve(__dirname, '../../.env') });
-loadEnv();
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';

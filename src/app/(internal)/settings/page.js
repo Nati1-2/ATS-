@@ -130,6 +130,9 @@ function TeamSettings() {
   const { user } = useAuth();
   const toast = useToast();
   const { data, error, loading, reload } = useApi('/settings/team');
+  const [account, setAccount] = useState({ name: '', email: '', role: 'recruiter', password: '' });
+  const [accountErrors, setAccountErrors] = useState({});
+  const [creating, setCreating] = useState(false);
   const [invite, setInvite] = useState({ email: '', role: 'recruiter' });
   const [inviteErrors, setInviteErrors] = useState({});
   const [inviteUrl, setInviteUrl] = useState('');
@@ -139,6 +142,34 @@ function TeamSettings() {
 
   if (loading && !data) return <LoadingState />;
   if (error) return <ErrorState error={error} onRetry={reload} />;
+
+  const setAccountField = (k) => (e) => setAccount((a) => ({ ...a, [k]: e.target.value }));
+
+  function generatePassword() {
+    const bytes = crypto.getRandomValues(new Uint8Array(12));
+    setAccount((a) => ({ ...a, password: btoa(String.fromCharCode(...bytes)).replace(/[+/=]/g, '').slice(0, 14) }));
+  }
+
+  async function createAccount(e) {
+    e.preventDefault();
+    const errs = {};
+    if (account.name.trim().length < 2) errs.name = 'Enter their full name';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(account.email.trim())) errs.email = 'Enter a valid email address';
+    if (account.password.length < 8) errs.password = 'Password must be at least 8 characters';
+    setAccountErrors(errs);
+    if (Object.keys(errs).length) return;
+    setCreating(true);
+    try {
+      const res = await api('/settings/team/users', { method: 'POST', body: account });
+      toast(`Account created for ${res.user.name} (${roleLabel(res.user.role)}) — share the password with them`);
+      setAccount({ name: '', email: '', role: account.role, password: '' });
+      reload();
+    } catch (err) {
+      setAccountErrors(err.fields || { email: err.message });
+    } finally {
+      setCreating(false);
+    }
+  }
 
   async function sendInvite(e) {
     e.preventDefault();
@@ -186,8 +217,31 @@ function TeamSettings() {
 
   return (
     <div>
+      <form onSubmit={createAccount} noValidate className="space-y-3 border-b border-slate-200 p-5 sm:p-6">
+        <h3 className="text-sm font-semibold">Create an account</h3>
+        <p className="text-xs text-slate-500">Set up a login directly and share the password with the person.</p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <TextInput label="Full name" value={account.name} onChange={setAccountField('name')} error={accountErrors.name} />
+          <TextInput label="Email" type="email" value={account.email} onChange={setAccountField('email')} error={accountErrors.email} placeholder="name@company.com" />
+          <SelectInput label="Role" value={account.role} onChange={setAccountField('role')} options={ROLES} error={accountErrors.role} />
+          <div className="flex items-start gap-2">
+            <div className="flex-1">
+              <TextInput label="Password" value={account.password} onChange={setAccountField('password')} error={accountErrors.password} autoComplete="new-password" />
+            </div>
+            <Button variant="secondary" onClick={generatePassword} className="mt-[26px]">
+              Generate
+            </Button>
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <Button type="submit" loading={creating}>
+            <UserPlus className="h-4 w-4" aria-hidden /> Create account
+          </Button>
+        </div>
+      </form>
+
       <form onSubmit={sendInvite} noValidate className="space-y-3 border-b border-slate-200 p-5 sm:p-6">
-        <h3 className="text-sm font-semibold">Invite a team member</h3>
+        <h3 className="text-sm font-semibold">Or invite by link</h3>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_200px_auto] sm:items-start">
           <TextInput label="Email" type="email" value={invite.email} onChange={(e) => setInvite({ ...invite, email: e.target.value })} error={inviteErrors.email} placeholder="name@company.com" />
           <SelectInput label="Role" value={invite.role} onChange={(e) => setInvite({ ...invite, role: e.target.value })} options={ROLES} error={inviteErrors.role} />
@@ -304,7 +358,7 @@ export default function SettingsPage() {
         <Card>
           <div className="border-b border-slate-200 px-5 py-4 sm:px-6">
             <h2 className="text-base font-semibold">Team members</h2>
-            <p className="text-sm text-slate-500">Invite colleagues and manage their roles.</p>
+            <p className="text-sm text-slate-500">Create accounts, invite colleagues and manage their roles.</p>
           </div>
           <TeamSettings />
         </Card>

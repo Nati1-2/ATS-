@@ -1,10 +1,8 @@
 # Production stack: MongoDB + API + web. Only the web app is published;
 # put it behind an HTTPS reverse proxy (Caddy, Nginx, a cloud load balancer) for real use.
 #
-#   cp .env.production.example .env.production   # then edit it
-#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
-#   docker compose -f docker-compose.prod.yml --env-file .env.production exec api \
-#     npm run create-admin -- --email you@company.com --name "Your Name" --company "Your Company"
+# Reads the project's single .env (set JWT_SECRET, CLIENT_URL and ADMIN_EMAIL / ADMIN_PASSWORD there):
+#   docker compose -f docker-compose.prod.yml up -d --build
 
 name: ats-prod
 
@@ -26,10 +24,13 @@ services:
     environment:
       NODE_ENV: production
       MONGODB_URI: mongodb://mongo:27017/ats
-      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.production}
-      CLIENT_URL: ${CLIENT_URL:?Set CLIENT_URL in .env.production}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      CLIENT_URL: ${CLIENT_URL:?Set CLIENT_URL in .env}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       MAX_RESUME_MB: ${MAX_RESUME_MB:-5}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_NAME: ${ADMIN_NAME:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
       GEMINI_FALLBACK_MODELS: ${GEMINI_FALLBACK_MODELS:-gemini-2.5-flash}

@@ -105,6 +105,38 @@ test('login: wrong password is rejected, right one sets a session', opts, async 
   assert.equal((await hm('POST', '/auth/login', { email: 'hm@t.test', password: 'Password123!' })).status, 200);
 });
 
+test('admin from .env: created on start, and its password is re-synced from .env', opts, async () => {
+  const { ensureEnvAdmin } = await import('../src/utils/envAdmin.js');
+  const env = { ADMIN_EMAIL: 'Boss@T.test', ADMIN_PASSWORD: 'EnvPassword1', ADMIN_NAME: 'Boss' };
+  await ensureEnvAdmin(env);
+  const boss = client();
+  assert.equal((await boss('POST', '/auth/login', { email: 'boss@t.test', password: 'EnvPassword1' })).body.user.role, 'admin');
+
+  await User.updateOne({ email: 'boss@t.test' }, { role: 'recruiter', active: false });
+  await ensureEnvAdmin({ ...env, ADMIN_PASSWORD: 'EnvPassword2' });
+  // Checked directly rather than by a failed login, which would count towards the rate-limit test's budget
+  const { passwordHash } = await User.findOne({ email: 'boss@t.test' }).select('+passwordHash');
+  assert.equal(await bcrypt.compare('EnvPassword1', passwordHash), false);
+  assert.equal((await boss('POST', '/auth/login', { email: 'boss@t.test', password: 'EnvPassword2' })).body.user.role, 'admin');
+  assert.equal(await ensureEnvAdmin({}), null);
+});
+
+test('admin creates accounts in any role; others cannot', opts, async () => {
+  const admin = client();
+  await admin('POST', '/auth/login', { email: 'admin@t.test', password: 'Password123!' });
+  const r = await admin('POST', '/settings/team/users', { name: 'New Manager', email: 'newhm@t.test', role: 'hiring_manager', password: 'Welcome123' });
+  assert.equal(r.status, 201);
+  assert.equal(r.body.user.role, 'hiring_manager');
+  const newbie = client();
+  assert.equal((await newbie('POST', '/auth/login', { email: 'newhm@t.test', password: 'Welcome123' })).body.user.role, 'hiring_manager');
+
+  const dup = await admin('POST', '/settings/team/users', { name: 'Again', email: 'newhm@t.test', role: 'recruiter', password: 'Welcome123' });
+  assert.equal(dup.status, 409);
+  assert.ok(dup.body.fields.email);
+  assert.equal((await admin('POST', '/settings/team/users', { name: 'X Y', email: 'x@t.test', role: 'owner', password: 'Welcome123' })).status, 400);
+  assert.equal((await rec('POST', '/settings/team/users', { name: 'Sneaky', email: 'sneaky@t.test', role: 'admin', password: 'Welcome123' })).status, 403);
+});
+
 test('internal endpoints require a session', opts, async () => {
   assert.equal((await anon('GET', '/jobs')).status, 401);
   assert.equal((await anon('GET', '/candidates')).status, 401);

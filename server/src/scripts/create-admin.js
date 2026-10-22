@@ -8,7 +8,6 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 loadEnv({ path: resolve(__dirname, '../../../.env') });
-loadEnv();
 import crypto from 'node:crypto';
 import { parseArgs } from 'node:util';
 import mongoose from 'mongoose';

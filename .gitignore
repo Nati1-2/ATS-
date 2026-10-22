@@ -7,12 +7,13 @@ node_modules
 out/
 build/
 
-# Environment
+# Environment — one .env at the project root; never commit any env file (any folder)
 .env
 .env.*
-!.env.example
-!.env.production.example
-!.env.vercel.example
+*.env
+**/.env
+**/.env.*
+.envrc
 
 # Vercel
 .vercel

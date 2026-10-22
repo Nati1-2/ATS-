@@ -8,12 +8,14 @@ import { loadConfig } from './config.js';
 import { createApp } from './app.js';
 import { resumePendingAi } from './utils/aiQueue.js';
 import { aiEnabled, AI_MODEL } from './utils/ai.js';
+import { ensureEnvAdmin } from './utils/envAdmin.js';
 
 const config = loadConfig();
 const app = createApp();
 
 async function start() {
   await mongoose.connect(config.mongoUri);
+  await ensureEnvAdmin();
   const server = app.listen(config.port, () => console.log(`ATS API listening on http://localhost:${config.port} (${config.env})`));
   console.log(aiEnabled() ? `AI analysis enabled (${AI_MODEL})` : 'AI analysis disabled (set GEMINI_API_KEY to enable)');
   resumePendingAi().catch((err) => console.error('[ai] resume failed:', err.message));

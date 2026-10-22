@@ -11,10 +11,12 @@ export function loadConfig(env = process.env) {
     errors.push('JWT_SECRET must be a random string of at least 32 characters in production');
   }
   if (isProd && !env.CLIENT_URL) errors.push('CLIENT_URL is required in production (used in invite and reset links)');
+  if (env.ADMIN_EMAIL && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.ADMIN_EMAIL.trim())) errors.push('ADMIN_EMAIL must be a valid email address');
+  if (env.ADMIN_EMAIL && (env.ADMIN_PASSWORD ?? '').length < 8) errors.push('ADMIN_PASSWORD must be at least 8 characters when ADMIN_EMAIL is set');
   const maxMb = Number(env.MAX_RESUME_MB || 5);
   if (!(maxMb > 0 && maxMb <= 50)) errors.push('MAX_RESUME_MB must be between 1 and 50');
   if (errors.length) {
-    console.error(`Invalid configuration:\n  - ${errors.join('\n  - ')}\nSee server/.env.example.`);
+    console.error(`Invalid configuration:\n  - ${errors.join('\n  - ')}\nCheck the .env file in the project root.`);
     process.exit(1);
   }
   return {

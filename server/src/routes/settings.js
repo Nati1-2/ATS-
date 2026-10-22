@@ -2,6 +2,7 @@ import { Router } from 'express';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { z } from 'zod';
+import bcrypt from 'bcryptjs';
 import { User, Invite, Job, ROLES, getCompany } from '../models/index.js';
 import { requireRole } from '../middleware/auth.js';
 import { HttpError, validate, assertObjectId } from '../utils/http.js';
@@ -62,6 +63,30 @@ router.get('/team', async (req, res) => {
     users: users.map((u) => ({ ...publicUser(u), createdAt: u.createdAt })),
     invites: invites.map((i) => ({ id: i._id, email: i.email, role: i.role, expiresAt: i.expiresAt })),
   });
+});
+
+// Create an account directly (no invite link); the admin shares the password with the person.
+router.post('/team/users', adminOnly, async (req, res) => {
+  const data = validate(
+    z.object({
+      name: z.string().trim().min(2, 'Enter their full name').max(100),
+      email: z.string().trim().toLowerCase().email('Enter a valid email address'),
+      role: z.enum(ROLES, { errorMap: () => ({ message: 'Select a role' }) }),
+      password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+    }),
+    req.body
+  );
+  if (await User.exists({ email: data.email })) {
+    throw new HttpError(409, 'Please correct the highlighted fields', { email: 'An account with this email already exists' });
+  }
+  const user = await User.create({
+    name: data.name,
+    email: data.email,
+    role: data.role,
+    passwordHash: await bcrypt.hash(data.password, 10),
+  });
+  await Invite.deleteMany({ email: data.email, acceptedAt: null });
+  res.status(201).json({ user: publicUser(user) });
 });
 
 router.post('/team/invites', adminOnly, async (req, res) => {

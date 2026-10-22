@@ -12,6 +12,7 @@ import { waitUntil } from '@vercel/functions';
 import { loadConfig } from './config.js';
 import { createApp } from './app.js';
 import { resumePendingAi, setBackgroundHook } from './utils/aiQueue.js';
+import { ensureEnvAdmin } from './utils/envAdmin.js';
 
 // The web app is served from the same deployment, so its URL is a safe default for invite/reset links
 if (!process.env.CLIENT_URL && process.env.VERCEL_PROJECT_PRODUCTION_URL) {
@@ -27,7 +28,8 @@ function connect() {
   if (mongoose.connection.readyState === 1) return Promise.resolve();
   connecting ??= mongoose
     .connect(config.mongoUri, { serverSelectionTimeoutMS: 10_000 })
-    .then(() => {
+    .then(async () => {
+      await ensureEnvAdmin();
       resumePendingAi().catch((err) => console.error('[ai] resume failed:', err.message));
     })
     .catch((err) => {

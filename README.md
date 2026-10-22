@@ -7,7 +7,7 @@ ATS/
 ├── src/        Next.js 15 (App Router) + Tailwind CSS + Vercel API bridge
 ├── server/     Express REST API + Mongoose (MongoDB), JWT auth, file uploads
 ├── vercel.json Vercel single-project zero-config deployment
-└── .env.example Unified environment config
+└── .env        The only environment file (frontend + backend, never committed)
 ```
 
 The Next.js app proxies `/api/*` to the Express server (see `next.config.mjs`). The browser therefore talks to a single origin, so the httpOnly auth cookie works without any CORS setup.
@@ -25,7 +25,14 @@ npm install
 npm run install:server
 
 # 2. Configure environment (one .env for both frontend and backend)
-cp .env.example .env        # then set JWT_SECRET to a long random string
+# Create .env in the project root with:
+#   MONGODB_URI=mongodb://127.0.0.1:27017/ats   (or your Atlas URI)
+#   JWT_SECRET=<openssl rand -hex 32>
+#   CLIENT_URL=http://localhost:3000
+#   API_URL=http://localhost:5000
+#   ADMIN_EMAIL=you@company.com
+#   ADMIN_PASSWORD=<at least 8 characters>
+#   GEMINI_API_KEY=            (optional, enables AI)
 
 # 3. Start MongoDB (skip if you use your own; set MONGODB_URI in .env)
 npm run db:up
@@ -38,6 +45,8 @@ npm run dev
 ```
 
 Open **http://localhost:3000**. The root URL redirects to the public careers site. Team members sign in at `/login`.
+
+**Admin login from `.env`.** When `ADMIN_EMAIL` and `ADMIN_PASSWORD` are set, the API creates that admin on start (or, if it already exists, makes it an active admin again and applies the `.env` password). To reset the admin password, change it in `.env` and restart. Once signed in, the admin creates accounts for other people under **Settings → Team members → Create an account**: name, email, role (Admin, Recruiter, Hiring manager) and a password to share with them. Invite links still work as an alternative.
 
 ### Demo accounts
 
@@ -105,12 +114,8 @@ After that, every push to `main` redeploys.
 ## Production deployment (Docker)
 
 ```bash
-cp .env.production.example .env.production      # set JWT_SECRET (openssl rand -hex 32) and CLIENT_URL
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
-
-# Create the first admin (no demo data in production)
-docker compose -f docker-compose.prod.yml --env-file .env.production exec api \
-  npm run create-admin -- --email you@company.com --name "Your Name" --company "Your Company"
+# Uses the same .env: set JWT_SECRET, CLIENT_URL (public URL) and ADMIN_EMAIL / ADMIN_PASSWORD
+docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 - **Three containers:** MongoDB, the API and the web app. Only the web app is published (on `WEB_PORT`, default 3000); the API and database stay on the internal network.
@@ -201,7 +206,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.production exec api \
 - If you add rules after people have applied, use **Run rules** on the job page. It only affects applicants still in *Applied*.
 - The Candidates page can filter by decision, and the dashboard shows the counts.
 
-**AI CV analysis (Google Gemini)** (`server/src/utils/ai.js`, `aiQueue.js`). Optional: set `GEMINI_API_KEY` in `server/.env` (and optionally `GEMINI_MODEL`, default `gemini-3.8-flash`).
+**AI CV analysis (Google Gemini)** (`server/src/utils/ai.js`, `aiQueue.js`). Optional: set `GEMINI_API_KEY` in the root `.env` (and optionally `GEMINI_MODEL`, default `gemini-3.8-flash`).
 - **In the background:** applicants get their confirmation immediately, and each CV is analysed afterwards, two at a time. Unfinished work resumes after a restart.
 - **Recruiter view:** the profile shows an **AI summary** with strengths, things to check in the interview, an advisory fit level, and skills judged by meaning. The candidates list shows an "AI: strong/good/partial/weak" badge. Older applications have a **Run AI analysis** button.
 - **Scanned CVs:** the AI reads image-only PDFs. That text feeds the normal rule-based score, so scanned CVs are no longer stuck at "unreadable". Text read from an image is never used to auto-reject.
@@ -288,7 +293,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.production exec api \
 - **Responsive:** everything works at phone width, and no page scrolls sideways.
 - **Production builds** hide the demo-login hint.
 
-**Rate limits** (per IP, all configurable in `server/.env`):
+**Rate limits** (per IP, all configurable in the root `.env`):
 - Only **failed** sign-ins count (`LOGIN_FAILURES_PER_15_MIN`, default 20), so a team sharing one office IP is never locked out.
 - Applications: `APPLICATIONS_PER_HOUR`, default 60.
 - Password reset and invites: `ACCOUNT_REQUESTS_PER_15_MIN`, default 30.
