@@ -3,6 +3,10 @@
 #
 # Reads the project's single .env (set JWT_SECRET, CLIENT_URL and ADMIN_EMAIL / ADMIN_PASSWORD there):
 #   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Or run the images CD publishes to GitHub Container Registry instead of building:
+#   API_IMAGE=ghcr.io/<owner>/ats-api:latest WEB_IMAGE=ghcr.io/<owner>/ats-web:latest \
+#     docker compose -f docker-compose.prod.yml up -d --no-build
 
 name: ats-prod
 
@@ -20,6 +24,7 @@ services:
 
   api:
     build: ./server
+    image: ${API_IMAGE:-ats-api}
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -42,9 +47,10 @@ services:
 
   web:
     build:
-      context: ./client
+      context: .
       args:
         API_URL: http://api:5000
+    image: ${WEB_IMAGE:-ats-web}
     restart: unless-stopped
     ports:
       - "${WEB_PORT:-3000}:3000"

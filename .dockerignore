@@ -1,0 +1,11 @@
+node_modules
+.next
+client
+server
+e2e
+docs
+.git
+.github
+.vercel
+.env*
+*.log

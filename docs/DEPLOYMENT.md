@@ -54,3 +54,30 @@ docker compose -f docker-compose.prod.yml up -d --build
   - `npm run seed` refuses to run in production, because it deletes all data.
 - **Security headers:** `nosniff`, `SAMEORIGIN`, `Referrer-Policy` and `Permissions-Policy` are set on every page.
 
+
+## CI/CD (GitHub Actions)
+
+**CI** (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`:
+
+- **API tests:** the server test suite against a MongoDB service.
+- **Web build:** `next build`.
+- **Browser tests:** seeds the database, starts both apps and runs the Playwright suite. On failure, the report and logs are uploaded as a run artifact.
+- **Production images:** builds both Docker images with `docker-compose.prod.yml`.
+
+**CD** (`.github/workflows/cd.yml`) runs only after CI passes on a push to `main`, or by hand from the Actions tab (**Run workflow**):
+
+- **Docker images** are pushed to GitHub Container Registry as `ghcr.io/<owner>/ats-api` and `ghcr.io/<owner>/ats-web`, each tagged `latest` and with the short commit SHA. No setup is needed. To run them on a server, pull them instead of building:
+
+  ```bash
+  API_IMAGE=ghcr.io/<owner>/ats-api:latest WEB_IMAGE=ghcr.io/<owner>/ats-web:latest \
+    docker compose -f docker-compose.prod.yml pull api web
+  API_IMAGE=ghcr.io/<owner>/ats-api:latest WEB_IMAGE=ghcr.io/<owner>/ats-web:latest \
+    docker compose -f docker-compose.prod.yml up -d --no-build
+  ```
+
+  The packages are private at first. Make them public, or run `docker login ghcr.io` on the server, under the repo's **Packages** settings.
+- **Vercel:** builds and deploys to production, then checks `/api/health`. The job is skipped with a notice until you set it up:
+  1. Run `npx vercel link` locally and copy `orgId` and `projectId` from `.vercel/project.json`.
+  2. Create a token at https://vercel.com/account/tokens.
+  3. In GitHub, go to **Settings → Secrets and variables → Actions** and add the secrets `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`. Add the variable `PRODUCTION_URL` (for example `https://acme-hiring.vercel.app`) for the health check.
+  4. Turn off Vercel's own Git deploys, so a push only reaches production after CI passes: add `"git": { "deploymentEnabled": false }` to `vercel.json`. Pull request previews from Vercel stop too.

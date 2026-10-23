@@ -63,7 +63,7 @@ Hiring is a high-risk use of AI (EU AI Act, NYC Local Law 144), so the AI is bui
 - **Quality:**
   - 77 server tests with the AI mocked, covering scoring, decisions, AI screening, CV extraction and the full API
   - Playwright browser tests
-  - GitHub Actions CI
+  - GitHub Actions CI/CD (tests, then Docker images to GHCR and a Vercel deploy; see [DEPLOYMENT.md](docs/DEPLOYMENT.md#cicd-github-actions))
 - **Deploy:** Vercel (one project) or Docker Compose
 
 ## Quick start
