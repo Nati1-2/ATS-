@@ -23,6 +23,8 @@ const nextConfig = {
   outputFileTracingRoot: path.dirname(fileURLToPath(import.meta.url)),
   poweredByHeader: false,
   devIndicators: false, // keep the dev build looking like production
+  // The /api proxy gives up after 30 s by default, but an AI CV review may take up to 90 s
+  experimental: { proxyTimeout: 120_000 },
   // Proxy API calls to the Express server so auth cookies stay same-origin.
   async rewrites() {
     if (ON_VERCEL) return [];

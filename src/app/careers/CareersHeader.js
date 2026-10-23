@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
 import { useApi } from '@/lib/api';
+import { useSeeker } from '@/components/SeekerProvider';
 
 export function CompanyLogo({ company, className = 'h-8 w-8' }) {
   if (company?.logoUrl) {
@@ -22,6 +23,7 @@ export function useCompany() {
 
 export default function CareersHeader() {
   const company = useCompany();
+  const { seeker, logout } = useSeeker();
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur">
       <nav aria-label="Careers" className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
@@ -30,8 +32,8 @@ export default function CareersHeader() {
           <span className="truncate text-[15px] font-semibold text-slate-900">{company?.name ?? ' '}</span>
           <span className="hidden text-[15px] text-slate-400 sm:inline">Careers</span>
         </Link>
-        <div className="flex items-center gap-1 text-sm sm:gap-2">
-          <Link href="/careers#roles" className="rounded-md px-2.5 py-1.5 font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900">
+        <div className="flex items-center gap-1 whitespace-nowrap text-sm sm:gap-2">
+          <Link href="/careers#roles" className="hidden rounded-md px-2.5 py-1.5 font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 sm:block">
             Open roles
           </Link>
           {company?.website && (
@@ -43,9 +45,28 @@ export default function CareersHeader() {
               About us <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
             </a>
           )}
-          <Link href="/login" className="rounded-md px-2.5 py-1.5 text-slate-500 hover:text-slate-800">
-            Team sign in
+          <Link href="/check-cv" className="rounded-md px-2.5 py-1.5 font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900">
+            Check your CV
           </Link>
+          {seeker ? (
+            <>
+              <Link href="/my" className="rounded-md bg-slate-900 px-2.5 py-1.5 font-medium text-white hover:bg-slate-700">
+                My dashboard
+              </Link>
+              <button type="button" onClick={logout} className="hidden rounded-md px-2.5 py-1.5 text-slate-500 hover:text-slate-800 sm:block">
+                Sign out
+              </button>
+            </>
+          ) : (
+            <>
+              <Link href="/my/login" className="rounded-md px-2.5 py-1.5 font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900">
+                Sign in
+              </Link>
+              <Link href="/login" className="hidden rounded-md px-2.5 py-1.5 text-slate-500 hover:text-slate-800 md:block">
+                Team sign in
+              </Link>
+            </>
+          )}
         </div>
       </nav>
     </header>

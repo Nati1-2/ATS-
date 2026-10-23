@@ -39,6 +39,9 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
       GEMINI_FALLBACK_MODELS: ${GEMINI_FALLBACK_MODELS:-gemini-2.5-flash}
+      PAYONEER_EMAIL: ${PAYONEER_EMAIL:-natnaelsolomon571@gmail.com}
+      CV_UPGRADE_PRICE: ${CV_UPGRADE_PRICE:-10}
+      CV_UPGRADE_CURRENCY: ${CV_UPGRADE_CURRENCY:-USD}
     volumes:
       - uploads:/data/uploads
     depends_on:

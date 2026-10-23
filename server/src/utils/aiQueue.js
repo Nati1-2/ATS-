@@ -22,6 +22,12 @@ export function setBackgroundHook(fn) {
   keepAlive = fn;
 }
 
+/** Run other work after the response is sent, kept alive on serverless hosts too. */
+export function inBackground(work) {
+  keepAlive(work);
+  return work;
+}
+
 export function enqueueAi(applicationId) {
   if (!aiEnabled()) return;
   const id = String(applicationId);

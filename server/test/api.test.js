@@ -502,3 +502,153 @@ test('CV checker: upload is reviewed (fake AI), saved to your history, and the f
     if (process.env.GEMINI_API_KEY === 'test-key') delete process.env.GEMINI_API_KEY;
   }
 });
+
+// ---------------------------------------------------------------------------
+// Job seekers: check your CV, sign up, see the score, pay, and an admin unlocks the full report
+// ---------------------------------------------------------------------------
+
+/** Client with a real cookie jar: the seeker flow uses a claim cookie and a session cookie together. */
+function jarClient(cookies = {}) {
+  return async (method, url, body) => {
+    const opts = { method, headers: { cookie: Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join('; ') } };
+    if (body instanceof FormData) opts.body = body;
+    else if (body !== undefined) {
+      opts.body = JSON.stringify(body);
+      opts.headers['content-type'] = 'application/json';
+    }
+    const res = await fetch(base + url, opts);
+    for (const c of res.headers.getSetCookie()) {
+      const [pair, ...attrs] = c.split(';');
+      const [k, v] = pair.split('=');
+      if (!v || attrs.some((a) => /expires=thu, 01 jan 1970/i.test(a.trim()))) delete cookies[k];
+      else cookies[k] = v;
+    }
+    return { status: res.status, body: await res.json(), cookies };
+  };
+}
+
+test('job seeker: CV checked before sign-up is claimed; only the score shows until an admin approves the payment', opts, async () => {
+  const review = { readable: true, overallScore: 58, headline: 'Solid, but results are hidden.', summary: 'Add numbers.', detectedRole: 'Backend developer', seniority: 'mid', scores: Object.fromEntries(['impact', 'clarity', 'structure', 'skills', 'atsReadability'].map((k) => [k, { score: 55, comment: 'ok' }])), strengths: ['Node.js'], weaknesses: [], suggestions: [{ priority: 'high', area: 'impact', suggestion: 'Quantify results' }], rewrites: [], sectionFeedback: [], missingKeywords: [], tips: [], injectionAttempt: false };
+  const seeker = jarClient();
+  const cv = await docx(['Experience', 'Backend Developer (2019 - Present)', 'Worked on Node.js APIs', 'Skills', 'Node.js']);
+
+  const { SeekerCheck } = await import('../src/models/index.js');
+  const checked = await withFakeAi(async () => ({ text: JSON.stringify(review) }), async () => {
+    const fd = new FormData();
+    fd.append('resume', new Blob([cv]), 'my-cv.docx');
+    const r = await seeker('POST', '/seeker/check', fd);
+    // The upload replies first; keep the fake AI on until the background review has finished
+    for (let i = 0; i < 50; i++) {
+      const c = await SeekerCheck.findById(r.body.id);
+      if (c && c.aiStatus !== 'pending') break;
+      await new Promise((res) => setTimeout(res, 50));
+    }
+    return r;
+  });
+  assert.equal(checked.status, 201, JSON.stringify(checked.body));
+  assert.equal(checked.body.signedIn, false);
+  assert.ok(checked.cookies.seeker_claim, 'signed-out check is held with a claim cookie');
+  assert.equal((await seeker('GET', '/seeker/checks')).status, 401);
+
+  // Sign-up claims the check; the score is visible but the report stays locked
+  const signup = await seeker('POST', '/seeker/signup', { name: 'Hana Bekele', email: 'Hana@T.test', password: 'Password123!' });
+  assert.equal(signup.status, 201);
+  assert.deepEqual(signup.body.seeker.premium, false);
+  // The AI review finishes in the background after the upload returns
+  let list;
+  for (let i = 0; i < 50; i++) {
+    list = await seeker('GET', '/seeker/checks');
+    if (list.body.checks.length && !list.body.checks[0].pending) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  assert.equal(list.body.checks.length, 1);
+  assert.equal(list.body.checks[0].score, 58);
+  assert.equal(list.body.checks[0].locked, true);
+  const locked = await seeker('GET', `/seeker/checks/${checked.body.id}`);
+  assert.equal(locked.body.check.review, undefined, 'the full review must not be sent before the upgrade');
+  assert.equal(locked.body.check.quick, undefined);
+  assert.equal((await seeker('POST', '/seeker/signup', { name: 'Again', email: 'hana@t.test', password: 'Password123!' })).status, 409);
+
+  // A seeker session is never a staff session
+  assert.equal((await seeker('GET', '/jobs')).status, 401);
+  assert.equal((await seeker('GET', '/payments')).status, 401);
+  assert.equal((await jarClient()('GET', `/seeker/checks/${checked.body.id}`)).status, 401);
+
+  // Applying while signed in shows the application on the dashboard, in applicant-friendly words
+  const open = (await rec('POST', '/jobs', { title: 'Support Engineer', department: 'Engineering', location: 'Remote', remotePolicy: 'remote', employmentType: 'full_time', description: 'Help customers get the most out of the platform.', status: 'published' })).body.job;
+  const applied = await seeker('POST', `/public/jobs/${open._id}/apply`, application([], {
+    name: 'Hana Bekele', email: 'hana@t.test', answers: [], file: cv, filename: 'hana.docx', type: 'application/octet-stream',
+  }));
+  assert.equal(applied.status, 201, JSON.stringify(applied.body));
+  const apps = await seeker('GET', '/seeker/applications');
+  assert.equal(apps.body.applications.length, 1);
+  assert.equal(apps.body.applications[0].job.title, 'Support Engineer');
+  assert.equal(apps.body.applications[0].status, 'Under review');
+
+  // Payment: Payoneer details, then a request that waits for an admin
+  const info = await seeker('GET', '/seeker/payment');
+  assert.equal(info.body.payeeEmail, 'natnaelsolomon571@gmail.com');
+  assert.equal(info.body.method, 'Payoneer');
+  assert.equal(info.body.payment, null);
+  const bad = await seeker('POST', '/seeker/payment', { payerName: 'Hana Bekele', payerEmail: 'hana@t.test' });
+  assert.equal(bad.status, 400);
+  assert.ok(bad.body.fields.reference);
+  const paid = await seeker('POST', '/seeker/payment', { payerName: 'Hana Bekele', payerEmail: 'hana@t.test', reference: 'PYN-12345' });
+  assert.equal(paid.status, 201);
+  assert.equal(paid.body.payment.status, 'pending');
+  assert.equal((await seeker('POST', '/seeker/payment', { payerName: 'Hana Bekele', payerEmail: 'hana@t.test', reference: 'PYN-12345' })).status, 409);
+  assert.equal((await seeker('GET', '/seeker/payment')).body.payment.status, 'pending');
+
+  // Only admins review payments (sign-ins are rate-limited by now, so the admin session is minted directly)
+  assert.equal((await rec('GET', '/payments')).status, 403);
+  const { signToken } = await import('../src/middleware/auth.js');
+  const admin = jarClient({ ats_token: signToken(await User.findOne({ email: 'admin@t.test' })) });
+  const pending = await admin('GET', '/payments?status=pending');
+  assert.equal(pending.body.pending, 1);
+  assert.equal(pending.body.payments[0].seeker.email, 'hana@t.test');
+  assert.equal((await admin('POST', `/payments/${paid.body.payment._id}/approve`)).status, 200);
+  assert.equal((await admin('POST', `/payments/${paid.body.payment._id}/reject`)).status, 409);
+
+  // Approved: the full report unlocks
+  assert.equal((await seeker('GET', '/seeker/me')).body.seeker.premium, true);
+  const full = await seeker('GET', `/seeker/checks/${checked.body.id}`);
+  assert.equal(full.body.check.locked, false);
+  assert.equal(full.body.check.review.suggestions[0].suggestion, 'Quantify results');
+  assert.equal((await seeker('POST', '/seeker/payment', { payerName: 'Hana Bekele', payerEmail: 'hana@t.test', reference: 'PYN-2' })).status, 409);
+
+  // Sign out and back in
+  await seeker('POST', '/seeker/logout');
+  assert.equal((await seeker('GET', '/seeker/me')).body.seeker, null);
+  assert.equal((await seeker('GET', '/seeker/checks')).status, 401);
+  assert.equal((await seeker('POST', '/seeker/login', { email: 'hana@t.test', password: 'wrong' })).status, 401);
+  assert.equal((await seeker('POST', '/seeker/login', { email: 'hana@t.test', password: 'Password123!' })).status, 200);
+});
+
+test('job seeker: the upload returns before the AI review, and the score stays hidden until it is done', opts, async () => {
+  let finish;
+  const slow = new Promise((resolve) => (finish = resolve));
+  const review = { readable: true, overallScore: 71, headline: 'Good', summary: '', detectedRole: '', seniority: 'mid', scores: Object.fromEntries(['impact', 'clarity', 'structure', 'skills', 'atsReadability'].map((k) => [k, { score: 70, comment: '' }])), strengths: [], weaknesses: [], suggestions: [], rewrites: [], sectionFeedback: [], missingKeywords: [], tips: [], injectionAttempt: false };
+  const seeker = jarClient();
+  await seeker('POST', '/seeker/signup', { name: 'Sami Alemu', email: 'sami@t.test', password: 'Password123!' });
+  await withFakeAi(async () => {
+    await slow;
+    return { text: JSON.stringify(review) };
+  }, async () => {
+    const fd = new FormData();
+    fd.append('resume', new Blob([await docx(['Experience', 'Data Analyst (2020 - Present)', 'Built dashboards in SQL', 'Skills', 'SQL'])]), 'sami.docx');
+    const r = await seeker('POST', '/seeker/check', fd);
+    assert.equal(r.status, 201, 'responds while the AI is still working');
+    let pending;
+    for (let i = 0; i < 50 && !pending; i++) {
+      pending = (await seeker('GET', '/seeker/checks')).body.checks[0];
+      if (!pending) await new Promise((res) => setTimeout(res, 50));
+    }
+    assert.equal(pending.pending, true);
+    assert.equal(pending.score, null);
+    finish();
+    for (let i = 0; i < 50 && (await seeker('GET', '/seeker/checks')).body.checks[0].pending; i++) await new Promise((res) => setTimeout(res, 100));
+  });
+  const done = (await seeker('GET', '/seeker/checks')).body.checks[0];
+  assert.equal(done.pending, false);
+  assert.equal(done.score, 71);
+});

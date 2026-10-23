@@ -4,7 +4,7 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import multer from 'multer';
-import { requireAuth } from './middleware/auth.js';
+import { requireAuth, requireRole } from './middleware/auth.js';
 import { HttpError } from './utils/http.js';
 import { MAX_RESUME_MB } from './utils/uploads.js';
 import authRoutes from './routes/auth.js';
@@ -17,6 +17,8 @@ import settingsRoutes from './routes/settings.js';
 import aiRoutes from './routes/ai.js';
 import aiScreeningRoutes from './routes/aiScreening.js';
 import cvCheckerRoutes from './routes/cvChecker.js';
+import seekerRoutes from './routes/seeker.js';
+import paymentRoutes from './routes/payments.js';
 
 /** Build the Express app. Kept separate from startup so tests can import it. */
 export function createApp() {
@@ -36,6 +38,7 @@ export function createApp() {
   });
   app.use('/api/auth', authRoutes);
   app.use('/api/public', publicRoutes);
+  app.use('/api/seeker', seekerRoutes);
   app.use('/api/dashboard', requireAuth, dashboardRoutes);
   app.use('/api/jobs', requireAuth, jobRoutes);
   app.use('/api/candidates', requireAuth, candidateRoutes);
@@ -45,6 +48,7 @@ export function createApp() {
   app.use('/api/ai', requireAuth, aiRoutes);
   app.use('/api/ai-screening', requireAuth, aiScreeningRoutes);
   app.use('/api/cv-checker', requireAuth, cvCheckerRoutes);
+  app.use('/api/payments', requireAuth, requireRole('admin'), paymentRoutes);
 
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Not found')));
 

@@ -3,13 +3,13 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { BarChart3, Briefcase, ChevronsUpDown, FileCheck2, Globe, Sparkles, ExternalLink, KanbanSquare, LayoutDashboard, LogOut, Menu, Search, Settings, ShieldCheck, Users, X } from 'lucide-react';
+import { BarChart3, Briefcase, ChevronsUpDown, CreditCard, FileCheck2, Globe, Sparkles, ExternalLink, KanbanSquare, LayoutDashboard, LogOut, Menu, Search, Settings, ShieldCheck, Users, X } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import CvResultsBell from './CvResultsBell';
 import CommandPalette from './CommandPalette';
 import AssistantChat from './AssistantChat';
 import { Avatar, cx, LoadingState } from './ui';
-import { api, useApi, useOnNewApplications, AI_SCREENING_CHANGED_EVENT } from '@/lib/api';
+import { api, useApi, useOnNewApplications, AI_SCREENING_CHANGED_EVENT, PAYMENTS_CHANGED_EVENT } from '@/lib/api';
 import { roleLabel } from '@/lib/constants';
 
 const NAV = [
@@ -45,7 +45,7 @@ function Brand({ company }) {
   );
 }
 
-function NavLink({ href, label, icon: Icon, onNavigate, external, ai, count }) {
+function NavLink({ href, label, icon: Icon, onNavigate, external, ai, count, countLabel = 'AI decisions waiting for you' }) {
   const pathname = usePathname();
   const active = !external && (pathname === href || pathname.startsWith(`${href}/`));
   return (
@@ -63,7 +63,7 @@ function NavLink({ href, label, icon: Icon, onNavigate, external, ai, count }) {
       <Icon className={cx('h-4 w-4', active ? 'text-blue-600' : ai ? 'text-violet-500' : 'text-slate-400 group-hover:text-slate-600')} aria-hidden />
       {label}
       {count > 0 && (
-        <span className="ml-auto rounded-full bg-violet-600 px-1.5 py-px text-[10px] font-semibold tabular-nums text-white" title={`${count} AI decisions waiting for you`}>
+        <span className="ml-auto rounded-full bg-violet-600 px-1.5 py-px text-[10px] font-semibold tabular-nums text-white" title={`${count} ${countLabel}`}>
           {count > 99 ? '99+' : count}
           <span className="sr-only"> waiting for review</span>
         </span>
@@ -123,6 +123,7 @@ function UserCard() {
 }
 
 function Sidebar({ company, onNavigate, counts = {} }) {
+  const { user } = useAuth();
   return (
     <nav aria-label="Main" className="flex h-full flex-col">
       <Brand company={company} />
@@ -147,6 +148,11 @@ function Sidebar({ company, onNavigate, counts = {} }) {
         </ul>
         <p className="px-3 pb-1.5 pt-5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Workspace</p>
         <ul className="space-y-0.5">
+          {user?.role === 'admin' && (
+            <li>
+              <NavLink href="/payments" label="Payments" icon={CreditCard} onNavigate={onNavigate} count={counts.paymentsPending} countLabel="payments waiting for approval" />
+            </li>
+          )}
           <li>
             <NavLink href="/settings" label="Settings" icon={Settings} onNavigate={onNavigate} />
           </li>
@@ -189,6 +195,30 @@ function useAiPendingCount(enabled) {
   return count;
 }
 
+/** Job seekers' payments waiting for an admin, for the sidebar badge. */
+function usePaymentsPendingCount(enabled) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!enabled) return;
+    const load = async () => {
+      if (document.hidden) return;
+      try {
+        setCount((await api('/payments?status=pending')).pending);
+      } catch {
+        /* badge is optional */
+      }
+    };
+    load();
+    const t = setInterval(load, 60_000);
+    window.addEventListener(PAYMENTS_CHANGED_EVENT, load);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener(PAYMENTS_CHANGED_EVENT, load);
+    };
+  }, [enabled]);
+  return count;
+}
+
 export default function AppShell({ children }) {
   const { user, loading } = useAuth();
   const company = useApi('/public/company').data?.company;
@@ -197,7 +227,8 @@ export default function AppShell({ children }) {
   const pathname = usePathname();
   useEffect(() => setMobileOpen(false), [pathname]);
   const aiPending = useAiPendingCount(Boolean(user));
-  const counts = { aiPending };
+  const paymentsPending = usePaymentsPendingCount(user?.role === 'admin');
+  const counts = { aiPending, paymentsPending };
 
   // Ctrl/⌘ + K opens search from anywhere
   useEffect(() => {

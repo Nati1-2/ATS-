@@ -20,9 +20,12 @@ Detailed reference for every feature: data model, permissions, CV screening, AI,
 | 12 | CV checker | `/cv-checker` |
 | 13 | AI reports | `/reports` |
 | 14 | AI assistant (full page) | `/assistant` |
+| 15 | Job seeker CV check | `/check-cv` |
+| 16 | Job seeker sign up / sign in, dashboard, full report, upgrade | `/my/signup`, `/my/login`, `/my`, `/my/checks/:id`, `/my/upgrade` |
+| 17 | Payments (admins approve job seekers' upgrades) | `/payments` |
 
 
-**Data model** (`server/src/models/index.js`): `User`, `Invite`, `Company`, `Job`, `Candidate`, `Application`, `Note` (internal notes and hiring-manager feedback), `Interview`, and `Activity`.
+**Data model** (`server/src/models/index.js`): `User`, `Invite`, `Company`, `Job`, `Candidate`, `Application`, `Note` (internal notes and hiring-manager feedback), `Interview`, and `Activity`. Job seekers have their own `Seeker`, `SeekerCheck` and `Payment` collections.
 
 - A candidate is identified by email. Each `Application` links one candidate to one job and has its own `stage`, so one person can apply to several jobs.
 - Every application, stage change, note, and interview writes an `Activity` record. These records make up the profile timeline.
@@ -136,6 +139,14 @@ Detailed reference for every feature: data model, permissions, CV screening, AI,
 - **Fairness and safety:** the same rules as the rest of the AI. It judges only professional content and ignores personal attributes, and text aimed at the AI is ignored and flagged.
 - **Privacy:** uploaded files are read and then deleted. Only the report is saved, and only the person who ran the check can see it. Reports can be deleted or printed / saved as PDF.
 - **Limit:** `AI_CV_CHECKS_PER_HOUR` (default 30) per user; each check is one AI request.
+
+**Job seeker CV check and upgrade** (`/check-cv`, `/my`, `server/src/routes/seeker.js`): the same CV review, for job seekers on the public site.
+- **Flow:** upload a CV at `/check-cv` (no account needed) → sign up or sign in → the dashboard at `/my` shows the **score only**, plus the jobs they applied for → **Improve my CV** opens `/my/upgrade`, which shows the Payoneer email to pay → they enter the transaction ID and click **I've paid** → an admin approves it on **Payments** (`/payments`, admins only) → the full report (fixes, rewrites, keywords, quick checks) unlocks for every CV they check.
+- **Accounts:** job seekers are a separate `Seeker` collection with their own `seeker_token` cookie, so a seeker session can never reach the hiring API. A CV checked before sign-up is held with a short-lived claim cookie and attached to the account on sign-up or sign-in.
+- **Locked reports:** until the payment is approved, the API sends only the score, never the review itself.
+- **Applications:** jobs applied for while signed in as a seeker are linked to the account and shown with applicant-friendly statuses (Under review, Interview, Offer, Hired, Not selected). Earlier applications are not matched by email, because seeker emails are not verified.
+- **Payment:** manual. Nothing is charged by the app; an admin checks that the money arrived in Payoneer before approving. Configure with `PAYONEER_EMAIL` (default `natnaelsolomon571@gmail.com`), `CV_UPGRADE_PRICE` (default `10`) and `CV_UPGRADE_CURRENCY` (default `USD`).
+- **Limit:** `SEEKER_CV_CHECKS_PER_HOUR` (default 10) per IP address, because checks work signed out.
 
 **AI reports** (`/reports`, `server/src/utils/insights.js` + `assistant.js`):
 - **Scope:** one job or all jobs. The **numbers come straight from the database**: totals, pipeline by stage, applications per week, CV-match distribution, automatic decisions, top candidates, people waiting 7+ days, the most common missing skills, time to hire, and upcoming interviews.

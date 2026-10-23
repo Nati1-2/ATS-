@@ -160,6 +160,8 @@ const applicationSchema = new Schema(
     // Who last set the stage: the rules at apply time, the AI, or a person
     stageSetBy: { type: String, enum: ['rules', 'ai', 'human'], default: 'rules' },
     stageChangedAt: { type: Date, default: Date.now },
+    // Job seeker account that applied while signed in (routes/seeker.js), so it shows on their dashboard
+    seeker: { type: ObjectId, ref: 'Seeker', index: true },
   },
   { timestamps: true }
 );
@@ -246,6 +248,56 @@ const cvCheckSchema = new Schema(
   { timestamps: true }
 );
 
+// Job seekers checking their own CV (routes/seeker.js). Separate from staff users so a seeker
+// session can never reach the hiring API.
+const seekerSchema = new Schema(
+  {
+    name: { type: String, required: true, trim: true },
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    passwordHash: { type: String, required: true, select: false },
+    // Set when an admin approves a payment: unlocks the full CV reports
+    premiumAt: Date,
+  },
+  { timestamps: true }
+);
+
+// A job seeker's CV check. Made before sign-up, then claimed with the token kept in a cookie.
+const seekerCheckSchema = new Schema(
+  {
+    seeker: { type: ObjectId, ref: 'Seeker', index: true },
+    claimTokenHash: { type: String, index: true, select: false },
+    fileName: String,
+    targetRole: String,
+    quick: { type: Schema.Types.Mixed, required: true },
+    review: { type: Schema.Types.Mixed },
+    // 'pending' while the AI review runs in the background after the upload returns
+    aiStatus: { type: String, enum: ['pending', 'done', 'failed', 'disabled'], required: true },
+    aiError: String,
+    model: String,
+  },
+  { timestamps: true }
+);
+
+export const PAYMENT_STATUSES = ['pending', 'approved', 'rejected'];
+
+// Manual Payoneer payment for the CV upgrade; an admin checks it arrived and approves it
+const paymentSchema = new Schema(
+  {
+    seeker: { type: ObjectId, ref: 'Seeker', required: true, index: true },
+    payerName: { type: String, required: true, trim: true },
+    payerEmail: { type: String, required: true, lowercase: true, trim: true },
+    reference: { type: String, required: true, trim: true },
+    amount: { type: Number, required: true },
+    currency: { type: String, required: true },
+    note: { type: String, default: '' },
+    status: { type: String, enum: PAYMENT_STATUSES, default: 'pending', index: true },
+    reviewedBy: { type: ObjectId, ref: 'User' },
+    reviewedAt: Date,
+    rejectReason: String,
+  },
+  { timestamps: true }
+);
+
 export const User = model('User', userSchema);
 export const Invite = model('Invite', inviteSchema);
 export const Company = model('Company', companySchema);
@@ -257,6 +309,9 @@ export const Interview = model('Interview', interviewSchema);
 export const Activity = model('Activity', activitySchema);
 export const Report = model('Report', reportSchema);
 export const CvCheck = model('CvCheck', cvCheckSchema);
+export const Seeker = model('Seeker', seekerSchema);
+export const SeekerCheck = model('SeekerCheck', seekerCheckSchema);
+export const Payment = model('Payment', paymentSchema);
 
 export async function getCompany() {
   let company = await Company.findOne();

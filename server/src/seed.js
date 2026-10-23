@@ -8,7 +8,7 @@ loadEnv({ path: path.resolve(__dirname, '../../.env') });
 import crypto from 'node:crypto';
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
-import { User, Invite, Company, Job, Candidate, Application, Note, Interview, Activity, Report, CvCheck } from './models/index.js';
+import { User, Invite, Company, Job, Candidate, Application, Note, Interview, Activity, Report, CvCheck, Seeker, SeekerCheck, Payment } from './models/index.js';
 import { UPLOAD_DIR, persistFile } from './utils/uploads.js';
 import { STAGE_LABELS } from './utils/activity.js';
 import { extractResumeText, scoreApplication, evaluateScreening, decideApplication } from './utils/screening.js';
@@ -55,7 +55,7 @@ async function main() {
   }
   await mongoose.connect(process.env.MONGODB_URI);
   console.log('Clearing existing data…');
-  await Promise.all([User, Invite, Company, Job, Candidate, Application, Note, Interview, Activity, Report, CvCheck].map((m) => m.deleteMany({})));
+  await Promise.all([User, Invite, Company, Job, Candidate, Application, Note, Interview, Activity, Report, CvCheck, Seeker, SeekerCheck, Payment].map((m) => m.deleteMany({})));
   const resumeDir = path.join(UPLOAD_DIR, 'resumes');
   for (const f of fs.readdirSync(resumeDir)) fs.unlinkSync(path.join(resumeDir, f));
   await new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: 'uploads' }).drop().catch(() => {});

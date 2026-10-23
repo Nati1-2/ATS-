@@ -8,15 +8,17 @@ export function signToken(user) {
   return jwt.sign({ sub: user._id.toString(), role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
 }
 
+export const cookieOptions = (maxAge) => ({
+  httpOnly: true,
+  sameSite: 'lax',
+  // Secure cookies need HTTPS; COOKIE_SECURE=false allows a plain-HTTP trial deployment
+  secure: process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : process.env.NODE_ENV === 'production',
+  maxAge,
+  path: '/',
+});
+
 export function setAuthCookie(res, token) {
-  res.cookie(COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    // Secure cookies need HTTPS; COOKIE_SECURE=false allows a plain-HTTP trial deployment
-    secure: process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : process.env.NODE_ENV === 'production',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-    path: '/',
-  });
+  res.cookie(COOKIE_NAME, token, cookieOptions(7 * 24 * 60 * 60 * 1000));
 }
 
 export async function requireAuth(req, _res, next) {

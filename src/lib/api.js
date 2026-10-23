@@ -88,6 +88,9 @@ export const NEW_APPLICATIONS_EVENT = 'ats:new-applications';
 /** Fired after AI screening decisions are confirmed or overturned, so the sidebar badge updates. */
 export const AI_SCREENING_CHANGED_EVENT = 'ats:ai-screening-changed';
 
+/** Fired after an admin approves or rejects a job seeker's payment, so the sidebar badge updates. */
+export const PAYMENTS_CHANGED_EVENT = 'ats:payments-changed';
+
 export function useOnNewApplications(callback) {
   const ref = useRef(callback);
   ref.current = callback;

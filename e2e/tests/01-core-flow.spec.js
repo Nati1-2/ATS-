@@ -128,7 +128,8 @@ test('permissions: recruiter settings are read-only, admin can invite and remove
   const admin = await (await browser.newContext()).newPage();
   await login(admin, 'admin@acme.test');
   await admin.goto('/settings');
-  await admin.getByPlaceholder('name@company.com').fill('newperson@acme.test');
+  // Settings has two email fields (create account, invite by link): use the invite one
+  await admin.locator('form', { hasText: 'Or invite by link' }).getByLabel('Email').fill('newperson@acme.test');
   await admin.getByRole('button', { name: 'Invite' }).click();
   await expect(admin.getByLabel('Invitation link')).toHaveValue(/accept-invite\?token=/);
   await admin.getByRole('button', { name: 'Remove Jordan Lee' }).click();

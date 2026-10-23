@@ -6,6 +6,7 @@ import { resumeUpload, verifyResumeSignature, persistFile, fetchFile, deleteStor
 import path from 'node:path';
 import { logActivity } from '../utils/activity.js';
 import { applyLimiter } from '../middleware/rateLimits.js';
+import { currentSeeker } from '../middleware/seekerAuth.js';
 import { aiEnabled } from '../utils/ai.js';
 import { enqueueAi } from '../utils/aiQueue.js';
 import { extractResumeText, scoreApplication, evaluateScreening, decideApplication, applyDecision } from '../utils/screening.js';
@@ -149,6 +150,7 @@ router.post('/jobs/:id/apply', applyLimiter, resumeUpload.single('resume'), asyn
       match: match ?? undefined,
       screeningAnswers: screening.answers,
       screeningPassed: screening.passed,
+      seeker: (await currentSeeker(req))?._id, // shows on the job seeker's dashboard when signed in
     });
     application.ai = { status: aiEnabled() ? 'pending' : 'disabled' };
     const decision = applyDecision(

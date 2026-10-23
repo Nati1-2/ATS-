@@ -27,6 +27,14 @@ export const loginLimiter = limiter({
   message: 'Too many failed sign-in attempts. Please wait 15 minutes and try again.',
 });
 
+// Job seeker sign-ins count separately, so failures there never lock staff out of the same IP
+export const seekerLoginLimiter = limiter({
+  windowMinutes: 15,
+  limit: num('LOGIN_FAILURES_PER_15_MIN', 20),
+  skipSuccessfulRequests: true,
+  message: 'Too many failed sign-in attempts. Please wait 15 minutes and try again.',
+});
+
 // Password reset and invitation links
 export const accountLimiter = limiter({
   windowMinutes: 15,
@@ -39,6 +47,13 @@ export const applyLimiter = limiter({
   windowMinutes: 60,
   limit: num('APPLICATIONS_PER_HOUR', 60),
   message: 'Too many applications from your network in the last hour. Please try again later.',
+});
+
+// Job seekers checking their own CV, per IP (each one is an AI request, and works signed out)
+export const seekerCheckLimiter = limiter({
+  windowMinutes: 60,
+  limit: num('SEEKER_CV_CHECKS_PER_HOUR', 10),
+  message: 'You have checked a lot of CVs this hour. Please try again a little later.',
 });
 
 // AI assistant messages per signed-in user (each one can use several AI requests)
