@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-const INTERNAL = ['/dashboard', '/jobs', '/candidates', '/pipeline', '/reports', '/assistant', '/ai-screening', '/cv-checker', '/payments', '/settings'];
+const INTERNAL = ['/dashboard', '/jobs', '/candidates', '/pipeline', '/reports', '/assistant', '/ai-screening', '/cv-checker', '/payments', '/ats-cv-filter', '/settings'];
 const AUTH_PAGES = ['/login', '/forgot-password'];
 // Job seeker area: its own session cookie, separate from staff sign-in
 const SEEKER_AUTH_PAGES = ['/my/login', '/my/signup'];
@@ -31,5 +31,5 @@ export function middleware(req) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/jobs/:path*', '/candidates/:path*', '/pipeline/:path*', '/reports/:path*', '/assistant/:path*', '/ai-screening/:path*', '/cv-checker/:path*', '/payments/:path*', '/settings/:path*', '/login', '/forgot-password', '/my/:path*'],
+  matcher: ['/dashboard/:path*', '/jobs/:path*', '/candidates/:path*', '/pipeline/:path*', '/reports/:path*', '/assistant/:path*', '/ai-screening/:path*', '/cv-checker/:path*', '/payments/:path*', '/ats-cv-filter/:path*', '/settings/:path*', '/login', '/forgot-password', '/my/:path*'],
 };

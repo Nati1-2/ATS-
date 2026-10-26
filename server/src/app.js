@@ -17,6 +17,7 @@ import settingsRoutes from './routes/settings.js';
 import aiRoutes from './routes/ai.js';
 import aiScreeningRoutes from './routes/aiScreening.js';
 import cvCheckerRoutes from './routes/cvChecker.js';
+import atsCvFilterRoutes from './routes/atsCvFilter.js';
 import seekerRoutes from './routes/seeker.js';
 import paymentRoutes from './routes/payments.js';
 
@@ -48,6 +49,7 @@ export function createApp() {
   app.use('/api/ai', requireAuth, aiRoutes);
   app.use('/api/ai-screening', requireAuth, aiScreeningRoutes);
   app.use('/api/cv-checker', requireAuth, cvCheckerRoutes);
+  app.use('/api/ats-cv-filter', requireAuth, requireRole('admin'), atsCvFilterRoutes);
   app.use('/api/payments', requireAuth, requireRole('admin'), paymentRoutes);
 
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Not found')));

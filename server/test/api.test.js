@@ -474,7 +474,7 @@ test('AI screening: auto mode rejects a weak CV, the job validates its rules, an
   assert.equal(rerun.body.processed, 0);
 });
 
-test('CV checker: upload is reviewed (fake AI), saved to your history, and the file is not kept', opts, async () => {
+test('CV checker: replies at once with quick checks, the AI review (fake AI) follows, and the file is not kept', opts, async () => {
   const { setGenerateForTests } = await import('../src/utils/ai.js');
   process.env.GEMINI_API_KEY ||= 'test-key';
   const review = { readable: true, overallScore: 64, headline: 'Good base, hidden results.', summary: 'Add numbers.', detectedRole: 'Backend developer', seniority: 'mid', scores: Object.fromEntries(['impact', 'clarity', 'structure', 'skills', 'atsReadability'].map((k) => [k, { score: 60, comment: 'ok' }])), strengths: ['Node.js'], weaknesses: [{ issue: 'No results', why: 'Recruiters skim for impact', fix: 'Add numbers' }], suggestions: [{ priority: 'high', area: 'impact', suggestion: 'Quantify' }], rewrites: [], sectionFeedback: [], missingKeywords: ['Kubernetes'], tips: [], injectionAttempt: false };
@@ -486,11 +486,53 @@ test('CV checker: upload is reviewed (fake AI), saved to your history, and the f
     fd.append('resume', new Blob([await docx(['Experience', 'Backend Developer (2019 - Present)', 'Worked on Node.js and MongoDB APIs', 'Skills', 'Node.js, MongoDB'])], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }), 'cv.docx');
     const r = await rec('POST', '/cv-checker', fd);
     assert.equal(r.status, 201);
-    assert.equal(r.body.check.aiStatus, 'done');
-    assert.equal(r.body.check.review.overallScore, 64);
+    assert.equal(r.body.check.aiStatus, 'pending', 'replies with the quick checks before the AI review');
     assert.equal(r.body.check.jobTitle, 'Backend Engineer');
     assert.ok(r.body.check.quick.checks.some((c) => c.id === 'keywords'));
-    assert.equal(fs.readdirSync(path.join(process.env.UPLOAD_DIR, 'resumes')).length, before);
+    let done;
+    for (let i = 0; i < 50 && done?.aiStatus !== 'done'; i++) {
+      done = (await rec('GET', `/cv-checker/${r.body.check._id}`)).body.check;
+      if (done.aiStatus !== 'done') await new Promise((res) => setTimeout(res, 50));
+    }
+    assert.equal(done.aiStatus, 'done');
+    assert.equal(done.review.overallScore, 64);
+    const uploads = () => fs.readdirSync(path.join(process.env.UPLOAD_DIR, 'resumes')).length;
+    for (let i = 0; i < 20 && uploads() !== before; i++) await new Promise((res) => setTimeout(res, 50)); // deleted after the review
+    assert.equal(uploads(), before);
+
+    // Fix: the person picks what to fix and confirms; the rewrite (fake AI) follows in the background
+    const fixed = { improvedCv: 'Backend Developer\nExperience\n- Built Node.js APIs serving [number of users]', changes: [{ area: 'Impact', change: 'Added results' }], stillMissing: ['[number of users]'] };
+    setGenerateForTests(async () => ({ text: JSON.stringify(fixed) }));
+    assert.equal((await rec('POST', `/cv-checker/${r.body.check._id}/fix`, { items: [] })).status, 400);
+    const started = await rec('POST', `/cv-checker/${r.body.check._id}/fix`, { items: ['No results — add numbers'], skills: ['Kubernetes'] });
+    assert.equal(started.status, 202);
+    assert.equal(started.body.check.fix.status, 'pending');
+    assert.equal(started.body.check.cvText, undefined, 'the CV text is never sent back');
+    let fix;
+    for (let i = 0; i < 50 && fix?.status !== 'done'; i++) {
+      fix = (await rec('GET', `/cv-checker/${r.body.check._id}`)).body.check.fix;
+      if (fix?.status !== 'done') await new Promise((res) => setTimeout(res, 50));
+    }
+    assert.equal(fix.result.improvedCv, fixed.improvedCv);
+    const docxRes = await rec('GET', `/cv-checker/${r.body.check._id}/fix.docx`);
+    assert.equal(docxRes.status, 200);
+    assert.ok(docxRes.body.byteLength > 500);
+    assert.equal((await hm('POST', `/cv-checker/${r.body.check._id}/fix`, { items: ['x'] })).status, 404);
+
+    // A check made before CV text was kept: it asks for the file again, then rewrites from the upload
+    const { CvCheck } = await import('../src/models/index.js');
+    await CvCheck.updateOne({ _id: r.body.check._id }, { $unset: { cvText: 1, fix: 1 } });
+    assert.equal((await rec('GET', `/cv-checker/${r.body.check._id}`)).body.check.hasCvText, false);
+    const noFile = await rec('POST', `/cv-checker/${r.body.check._id}/fix`, { items: ['No results'] });
+    assert.equal(noFile.status, 400);
+    assert.ok(noFile.body.fields.resume);
+    const again = new FormData();
+    again.append('payload', JSON.stringify({ items: ['No results'] }));
+    again.append('resume', new Blob([await docx(['Experience', 'Backend Developer (2019 - Present)', 'Skills', 'Node.js'])], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }), 'cv.docx');
+    const reup = await rec('POST', `/cv-checker/${r.body.check._id}/fix`, again);
+    assert.equal(reup.status, 202);
+    assert.equal(reup.body.check.hasCvText, true);
+    for (let i = 0; i < 50 && (await rec('GET', `/cv-checker/${r.body.check._id}`)).body.check.fix.status !== 'done'; i++) await new Promise((res) => setTimeout(res, 50));
 
     const list = await rec('GET', '/cv-checker');
     assert.equal(list.body.checks[0]._id, r.body.check._id);
@@ -651,4 +693,46 @@ test('job seeker: the upload returns before the AI review, and the score stays h
   const done = (await seeker('GET', '/seeker/checks')).body.checks[0];
   assert.equal(done.pending, false);
   assert.equal(done.score, 71);
+});
+
+test('ATS CV Filter: admins filter CVs by rule-based ATS checks only; others are refused', opts, async () => {
+  assert.equal((await rec('GET', '/ats-cv-filter')).status, 403);
+  const { signToken } = await import('../src/middleware/auth.js');
+  const admin = jarClient({ ats_token: signToken(await User.findOne({ email: 'admin@t.test' })) });
+
+  const all = await admin('GET', '/ats-cv-filter');
+  assert.equal(all.status, 200);
+  assert.ok(all.body.total > 0);
+  const row = all.body.applications[0];
+  assert.ok(Number.isInteger(row.atsScore));
+  assert.ok(row.checks.some((c) => c.id === 'readable'));
+
+  const sorted = (await admin('GET', '/ats-cv-filter?sort=ats')).body.applications.map((a) => a.atsScore);
+  assert.deepEqual(sorted, [...sorted].sort((a, b) => b - a));
+  for (const a of (await admin('GET', '/ats-cv-filter?minAts=75')).body.applications) assert.ok(a.atsScore >= 75);
+  const { decisions, counted } = all.body;
+  assert.equal(decisions.pass + decisions.review + decisions.reject, counted);
+  for (const a of (await admin('GET', '/ats-cv-filter?result=reject')).body.applications) assert.equal(a.decision, 'reject');
+  assert.ok(row.improvements.every((i) => i.problem && i.fix));
+  for (const a of (await admin('GET', '/ats-cv-filter?mustPass=contact')).body.applications) assert.equal(a.checks.find((c) => c.id === 'contact').status, 'pass');
+});
+
+test('ATS CV Filter: an uploaded CV is checked with ATS rules only, even with AI switched on', opts, async () => {
+  const { signToken } = await import('../src/middleware/auth.js');
+  const admin = jarClient({ ats_token: signToken(await User.findOne({ email: 'admin@t.test' })) });
+  let aiCalls = 0;
+  await withFakeAi(async () => {
+    aiCalls++;
+    return { text: '{}' };
+  }, async () => {
+    const fd = new FormData();
+    fd.append('resume', new Blob([await docx(['Abebe Kebede', 'abebe@t.test +251 911 234 567', 'Experience', 'Engineer (2019 - Present)', 'Cut costs by 30%', 'Education', 'BSc', 'Skills', 'React'])]), 'abebe.docx');
+    const r = await admin('POST', '/ats-cv-filter/check', fd);
+    assert.equal(r.status, 200);
+    assert.equal(r.body.result.fileName, 'abebe.docx');
+    assert.ok(r.body.result.score > 0);
+    assert.equal(r.body.result.checks.find((c) => c.id === 'contact').status, 'pass');
+    assert.equal((await admin('POST', '/ats-cv-filter/check', new FormData())).status, 400);
+  });
+  assert.equal(aiCalls, 0);
 });

@@ -17,6 +17,11 @@ export const AI_FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS ?? 'gemini
   .split(',')
   .map((m) => m.trim())
   .filter((m) => m && m !== AI_MODEL);
+// Light, fast models tried first where a person is waiting for the answer (CV reviews take ~4 s on these)
+export const AI_FAST_MODELS = (process.env.GEMINI_FAST_MODELS ?? 'gemini-3.5-flash-lite,gemini-3.1-flash-lite')
+  .split(',')
+  .map((m) => m.trim())
+  .filter(Boolean);
 const TIMEOUT_MS = 90_000;
 const MAX_ATTEMPTS = 3;
 const MAX_TEXT_CHARS = 60_000;
@@ -162,16 +167,28 @@ export async function analyzeApplication({ job, resumePath, resumeMime, resumeTe
   return { status: 'failed', model: AI_MODEL, analyzedAt: new Date(), error: friendlyError(out.error), rateLimited: out.rateLimited, retryAfterMs: out.retryAfterMs };
 }
 
+// Models that recently hung, were overloaded, missing or out of quota are skipped until this time,
+// so one bad model doesn't make every request wait for its timeout
+const coolingUntil = new Map();
+const COOLDOWN_MS = 5 * 60_000;
+export const resetModelHealth = () => coolingUntil.clear();
+const isCooling = (model) => (coolingUntil.get(model) ?? 0) > Date.now();
+
 /**
  * Run one model call with the quota/retry policy shared by every AI feature:
- * transient errors are retried with backoff; a used-up daily quota moves straight on to the next
- * model in GEMINI_FALLBACK_MODELS. `attempt(model)` makes one call and returns its value.
+ * transient errors are retried with backoff; a used-up daily quota, a model that hangs (timeout) or is missing
+ * moves straight on to the next model in GEMINI_FALLBACK_MODELS, and so does an overloaded model once its retries are spent. `attempt(model)` makes one call and returns its value.
+ * `models` overrides the order (default GEMINI_MODEL, then GEMINI_FALLBACK_MODELS); models cooling down after a failure are skipped.
  * Resolves to { ok: true, value, model } or { ok: false, error, rateLimited, retryAfterMs }.
  */
-export async function withModelFallback(attempt) {
+export async function withModelFallback(attempt, { models = [AI_MODEL, ...AI_FALLBACK_MODELS] } = {}) {
+  const unique = [...new Set(models)];
+  const healthy = unique.filter((m) => !isCooling(m));
+  const order = healthy.length ? healthy : unique; // all cooling: try them anyway
   const quotaWaits = [];
   let lastError;
-  for (const model of [AI_MODEL, ...AI_FALLBACK_MODELS]) {
+  for (const [i, model] of order.entries()) {
+    const hasNext = i < order.length - 1;
     for (let n = 1; n <= MAX_ATTEMPTS; n++) {
       try {
         return { ok: true, value: await attempt(model), model };
@@ -182,17 +199,23 @@ export async function withModelFallback(attempt) {
           // A daily quota won't recover by retrying in seconds: move on to the next model now
           if (quota.daily) {
             quotaWaits.push(quota.retryAfterMs ?? 60 * 60_000);
+            coolingUntil.set(model, Date.now() + (quota.retryAfterMs ?? 60 * 60_000));
             break;
           }
           if (n === MAX_ATTEMPTS) quotaWaits.push(quota.retryAfterMs ?? 60_000);
+        }
+        // A hung, overloaded or missing model: rest it and go straight to the next one instead of waiting on retries
+        if (err.timeout || [404, 500, 502, 503, 504].includes(err.status)) {
+          coolingUntil.set(model, Date.now() + COOLDOWN_MS);
+          if (hasNext || err.timeout) break;
         }
         const retryable = err.retryable || [429, 500, 502, 503, 504].includes(err.status);
         if (!retryable || n === MAX_ATTEMPTS) break;
         await new Promise((r) => setTimeout(r, 2000 * 2 ** (n - 1)));
       }
     }
-    // Only quota problems are worth trying on another model; other errors would repeat
-    if (lastError?.status !== 429) break;
+    // Quota, overload, timeouts and unknown models are worth trying on another model; other errors (bad key, bad request) would repeat
+    if (!lastError?.timeout && ![404, 429, 500, 502, 503, 504].includes(lastError?.status)) break;
   }
   const rateLimited = lastError?.status === 429;
   return {
@@ -206,7 +229,10 @@ export async function withModelFallback(attempt) {
 
 // Tests swap in a fake model; production calls Gemini
 let generateOverride = null;
-export const setGenerateForTests = (fn) => (generateOverride = fn);
+export const setGenerateForTests = (fn) => {
+  generateOverride = fn;
+  coolingUntil.clear();
+};
 export const defaultGenerate = (req) => (generateOverride ? generateOverride(req) : getClient().models.generateContent(req));
 
 /** Read Google's quota details (daily vs per-minute, and how long to wait) from a 429 error. */
@@ -222,7 +248,7 @@ export function withTimeout(promise, ms) {
   return Promise.race([
     promise.finally(() => clearTimeout(t)),
     new Promise((_, reject) => {
-      t = setTimeout(() => reject(Object.assign(new Error('AI request timed out'), { retryable: true })), ms);
+      t = setTimeout(() => reject(Object.assign(new Error('AI request timed out'), { retryable: true, timeout: true })), ms);
     }),
   ]);
 }

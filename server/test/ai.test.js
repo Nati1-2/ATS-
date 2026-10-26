@@ -1,9 +1,11 @@
-import { test } from 'node:test';
+import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { analyzeApplication, parseResult } from '../src/utils/ai.js';
+import { analyzeApplication, parseResult, resetModelHealth } from '../src/utils/ai.js';
+
+beforeEach(resetModelHealth);
 
 const job = { title: 'Frontend Engineer', mustHaveSkills: ['React'], niceToHaveSkills: [], description: 'Build our web app.' };
 const good = {
@@ -107,4 +109,34 @@ test("today's date is given to the model so 'Present' is measured correctly", as
   await analyzeApplication({ job, resumeText: 'Developer (2022 - Present)' }, { generate: async (req) => ((sent = req), { text: JSON.stringify(good) }) });
   const text = sent.contents[0].parts.map((p) => p.text || '').join('\n');
   assert.ok(text.includes(`Today's date is ${new Date().toISOString().slice(0, 10)}`));
+});
+
+test('a main model that hangs or is overloaded → falls back to the next model', async () => {
+  for (const err of [Object.assign(new Error('AI request timed out'), { retryable: true, timeout: true }), Object.assign(new Error('not found'), { status: 404 })]) {
+    resetModelHealth();
+    const models = [];
+    const r = await analyzeApplication({ job, resumeText: 'cv' }, {
+      generate: async (req) => {
+        models.push(req.model);
+        if (models.length === 1) throw err;
+        return { text: JSON.stringify(good) };
+      },
+    });
+    assert.equal(r.status, 'done', err.message);
+    assert.equal(models.length, 2, 'no retries against a hung or missing model');
+    assert.notEqual(models[1], models[0]);
+  }
+});
+
+test('a model that just failed is skipped on the next request instead of waited on again', async () => {
+  const models = [];
+  const generate = async (req) => {
+    models.push(req.model);
+    if (models.length === 1) throw Object.assign(new Error('high demand'), { status: 503 });
+    return { text: JSON.stringify(good) };
+  };
+  await analyzeApplication({ job, resumeText: 'cv' }, { generate });
+  await analyzeApplication({ job, resumeText: 'cv' }, { generate });
+  assert.equal(models.length, 3);
+  assert.equal(models[2], models[1], 'second request goes straight to the healthy model');
 });

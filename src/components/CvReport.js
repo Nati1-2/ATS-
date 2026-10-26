@@ -2,7 +2,7 @@
 
 import { ArrowRight, CheckCircle2, CircleAlert, FileCheck2, Lightbulb, Printer, Sparkles, ThumbsUp, Trash2, TriangleAlert, XCircle } from 'lucide-react';
 import { formatDateTime } from '@/lib/constants';
-import { Alert, Badge, Button, Card, cx } from '@/components/ui';
+import { Alert, Badge, Button, Card, cx, Spinner } from '@/components/ui';
 
 const SUB_SCORES = [
   ['impact', 'Impact & results'],
@@ -100,6 +100,13 @@ export default function CvReport({ check, onDelete }) {
         </p>
       </Card>
 
+      {check.aiStatus === 'pending' && (
+        <Alert kind="info">
+          <span className="inline-flex items-center gap-2">
+            <Spinner className="h-4 w-4" /> The AI review is being written (usually a few seconds). The quick checks below are ready now.
+          </span>
+        </Alert>
+      )}
       {check.aiStatus === 'disabled' && <Alert kind="info">AI isn’t set up on this server, so this report has the quick checks only. Add GEMINI_API_KEY to get a full review with comments, rewrites and tips.</Alert>}
       {check.aiStatus === 'failed' && <Alert>The AI review failed: {check.aiError}. The quick checks below still apply.</Alert>}
       {rv?.injectionAttempt && <Alert>This CV contains text aimed at AI or screening systems (for example hidden keywords or “rate this 100”). Recruiters treat that as a red flag: remove it.</Alert>}

@@ -9,6 +9,8 @@ import { resumeUpload, verifyResumeSignature, removeFile, fetchFile } from '../u
 import { extractResumeText } from '../utils/screening.js';
 import { aiEnabled } from '../utils/ai.js';
 import { quickChecks, reviewCv } from '../utils/cvChecker.js';
+import { fixCv, cvToDocx } from '../utils/cvFixer.js';
+import { inBackground } from '../utils/aiQueue.js';
 
 const router = Router();
 
@@ -20,11 +22,56 @@ const checkSchema = z.object({
   text: z.string().trim().max(60_000).optional().default(''),
 });
 
+// A review still 'pending' after this long was cut short (for example by a restart)
+const STALE_REVIEW_MS = 3 * 60 * 1000;
+
+/** The AI review, run after the response is sent. The uploaded file (if any) is deleted at the end. */
+async function finishReview(checkId, { text, pdfPath, job, targetRole, file }) {
+  try {
+    const ai = await reviewCv({ text, pdfPath, job, targetRole });
+    await CvCheck.updateOne({ _id: checkId }, { $set: { review: ai.review, aiStatus: ai.status, aiError: ai.error, model: ai.model } });
+  } catch (err) {
+    console.error(`[cv checker] ${checkId}: ${err.message}`);
+    await CvCheck.updateOne({ _id: checkId }, { $set: { aiStatus: 'failed', aiError: 'The AI review could not be completed' } }).catch(() => {});
+  } finally {
+    if (file) removeFile(file.path);
+  }
+}
+
+/** The AI rewrite, run after the response is sent. */
+async function finishFix(checkId, input) {
+  try {
+    const out = await fixCv(input);
+    await CvCheck.updateOne({ _id: checkId }, { $set: { 'fix.status': out.status, 'fix.result': out.result, 'fix.error': out.error, 'fix.model': out.model } });
+  } catch (err) {
+    console.error(`[cv fixer] ${checkId}: ${err.message}`);
+    await CvCheck.updateOne({ _id: checkId }, { $set: { 'fix.status': 'failed', 'fix.error': 'The CV could not be rewritten' } }).catch(() => {});
+  }
+}
+
+const fixSchema = z.object({
+  items: z.array(z.string().trim().min(1).max(600)).min(1, 'Choose at least one thing to fix').max(25),
+  skills: z.array(z.string().trim().min(1).max(60)).max(15).optional().default([]),
+  notes: z.string().trim().max(3000).optional().default(''),
+});
+
+/** The CV text to rewrite: saved with the check, or (for checks made before it was saved) the applicant's CV on file. */
+async function savedCvText(check) {
+  if (check.cvText) return check.cvText;
+  if (check.application) {
+    const app = await Application.findById(check.application).select('+resumeText resumeTextSource').lean();
+    if (app?.resumeText) return app.resumeText;
+  }
+  return '';
+}
+
 const LIST_FIELDS = 'source fileName candidateName jobTitle targetRole quick.score review.overallScore review.headline aiStatus createdAt';
 
 // Check a CV: an uploaded file, pasted text, or an applicant's CV. Optional target job or role.
+// Replies with the quick checks straight away; the AI review is added in the background (poll GET /:id).
 router.post('/', aiCvCheckLimiter, resumeUpload.single('resume'), async (req, res) => {
   const file = req.file;
+  let handedOff = false;
   try {
     const body = validate(checkSchema, req.body ?? {});
     let text = '';
@@ -62,7 +109,7 @@ router.post('/', aiCvCheckLimiter, resumeUpload.single('resume'), async (req, re
     }
 
     const quick = quickChecks(text, job);
-    const ai = aiEnabled() && (text || pdfPath) ? await reviewCv({ text, pdfPath, job, targetRole: body.targetRole }) : { status: 'disabled' };
+    const runAi = aiEnabled() && Boolean(text || pdfPath);
     const check = await CvCheck.create({
       createdBy: req.user._id,
       source,
@@ -71,15 +118,17 @@ router.post('/', aiCvCheckLimiter, resumeUpload.single('resume'), async (req, re
       jobTitle: job?.title,
       targetRole: job ? undefined : body.targetRole || undefined,
       quick,
-      review: ai.review,
-      aiStatus: ai.status,
-      aiError: ai.error,
-      model: ai.model,
+      cvText: text || undefined,
+      aiStatus: runAi ? 'pending' : 'disabled',
     });
+    if (runAi) {
+      inBackground(finishReview(check._id, { text, pdfPath, job, targetRole: body.targetRole, file }));
+      handedOff = true;
+    }
     res.status(201).json({ check });
   } finally {
     // Uploaded files are only read, never kept
-    if (file) removeFile(file.path);
+    if (file && !handedOff) removeFile(file.path);
   }
 });
 
@@ -91,9 +140,70 @@ router.get('/', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   assertObjectId(req.params.id, 'CV check');
-  const check = await CvCheck.findOne({ _id: req.params.id, createdBy: req.user._id }).lean();
-  if (!check) throw new HttpError(404, 'CV check not found');
+  const found = await CvCheck.findOne({ _id: req.params.id, createdBy: req.user._id }).select('+cvText').lean();
+  if (!found) throw new HttpError(404, 'CV check not found');
+  const { cvText, ...check } = found;
+  // Without saved text (checks made before CV fixing existed) the CV has to be uploaded again to be rewritten
+  check.hasCvText = Boolean(cvText) || Boolean(check.application && (await savedCvText(found)));
+  if (check.aiStatus === 'pending' && Date.now() - new Date(check.createdAt).getTime() > STALE_REVIEW_MS) {
+    Object.assign(check, { aiStatus: 'failed', aiError: 'The AI review took too long' });
+  }
+  if (check.fix?.status === 'pending' && Date.now() - new Date(check.fix.startedAt).getTime() > STALE_REVIEW_MS) {
+    Object.assign(check.fix, { status: 'failed', error: 'The rewrite took too long' });
+  }
   res.json({ check });
+});
+
+// After the person confirms what to fix: rewrite the CV with AI in the background (poll GET /:id for `fix`)
+// JSON, or multipart with the CV file again (`resume`) and the same fields as JSON in `payload`.
+router.post('/:id/fix', aiCvCheckLimiter, resumeUpload.single('resume'), async (req, res) => {
+  const file = req.file;
+  try {
+    assertObjectId(req.params.id, 'CV check');
+    let raw = req.body ?? {};
+    if (file) {
+      try {
+        raw = JSON.parse(req.body?.payload || '{}');
+      } catch {
+        throw new HttpError(400, 'Invalid request');
+      }
+    }
+    const body = validate(fixSchema, raw);
+    if (!aiEnabled()) throw new HttpError(400, 'AI isn’t set up on this server, so CVs can’t be rewritten');
+    const check = await CvCheck.findOne({ _id: req.params.id, createdBy: req.user._id }).select('+cvText');
+    if (!check) throw new HttpError(404, 'CV check not found');
+    if (check.fix?.status === 'pending' && Date.now() - check.fix.startedAt.getTime() < STALE_REVIEW_MS) throw new HttpError(409, 'The CV is already being rewritten');
+
+    let text = await savedCvText(check);
+    if (file) {
+      if (!verifyResumeSignature(file.path)) throw new HttpError(400, 'Please correct the highlighted fields', { resume: 'This file is damaged or is not really the type its name says' });
+      text = await extractResumeText(file.path);
+      if (!text) throw new HttpError(400, 'Please correct the highlighted fields', { resume: 'No text could be read from this file. Upload a Word file or a text-based PDF.' });
+      check.cvText = text;
+    }
+    if (!text) throw new HttpError(400, 'Please correct the highlighted fields', { resume: 'Upload the CV again so it can be rewritten' });
+
+    const job = check.job ? await Job.findById(check.job) : null;
+    check.fix = { status: 'pending', ...body, startedAt: new Date() };
+    await check.save();
+    inBackground(finishFix(check._id, { text, ...body, job, targetRole: check.targetRole }));
+    const { cvText: _omit, ...rest } = check.toObject();
+    res.status(202).json({ check: { ...rest, hasCvText: true } });
+  } finally {
+    // Uploaded files are only read, never kept
+    if (file) removeFile(file.path);
+  }
+});
+
+// The rewritten CV as a Word file
+router.get('/:id/fix.docx', async (req, res) => {
+  assertObjectId(req.params.id, 'CV check');
+  const check = await CvCheck.findOne({ _id: req.params.id, createdBy: req.user._id }).select('fix fileName').lean();
+  if (check?.fix?.status !== 'done') throw new HttpError(404, 'No rewritten CV yet');
+  const base = (check.fileName || 'CV').replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_').slice(0, 80) || 'CV';
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+  res.setHeader('Content-Disposition', `attachment; filename="${base}-improved.docx"`);
+  res.send(await cvToDocx(check.fix.result.improvedCv));
 });
 
 router.delete('/:id', async (req, res) => {

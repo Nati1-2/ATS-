@@ -12,9 +12,11 @@
 import fs from 'node:fs/promises';
 import { Type } from '@google/genai';
 import { splitSections, scoreApplication } from './scoring.js';
-import { AI_MODEL, defaultGenerate, friendlyError, withModelFallback, withTimeout } from './ai.js';
+import { AI_FALLBACK_MODELS, AI_FAST_MODELS, AI_MODEL, defaultGenerate, friendlyError, withModelFallback, withTimeout } from './ai.js';
 
-const TIMEOUT_MS = 90_000;
+// Someone is waiting for the review: fast models first, and give up on a stuck model quickly
+const TIMEOUT_MS = 30_000;
+const MODELS = [...AI_FAST_MODELS, AI_MODEL, ...AI_FALLBACK_MODELS];
 const MAX_TEXT_CHARS = 60_000;
 
 // ---------------------------------------------------------------------------
@@ -266,7 +268,7 @@ export async function reviewCv({ text, pdfPath, job, targetRole }, { generate } 
       TIMEOUT_MS
     );
     return parseReview(res?.text);
-  });
+  }, { models: MODELS });
   if (out.ok) return { status: 'done', model: out.model, review: out.value };
   return { status: 'failed', model: AI_MODEL, error: friendlyError(out.error), rateLimited: out.rateLimited };
 }

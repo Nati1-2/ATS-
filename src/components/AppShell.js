@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { BarChart3, Briefcase, ChevronsUpDown, CreditCard, FileCheck2, Globe, Sparkles, ExternalLink, KanbanSquare, LayoutDashboard, LogOut, Menu, Search, Settings, ShieldCheck, Users, X } from 'lucide-react';
+import { BarChart3, Briefcase, ChevronsUpDown, CreditCard, FileCheck2, Filter, Globe, Sparkles, ExternalLink, KanbanSquare, LayoutDashboard, LogOut, Menu, Search, Settings, ShieldCheck, Users, X } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import CvResultsBell from './CvResultsBell';
 import CommandPalette from './CommandPalette';
@@ -149,9 +149,14 @@ function Sidebar({ company, onNavigate, counts = {} }) {
         <p className="px-3 pb-1.5 pt-5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Workspace</p>
         <ul className="space-y-0.5">
           {user?.role === 'admin' && (
-            <li>
-              <NavLink href="/payments" label="Payments" icon={CreditCard} onNavigate={onNavigate} count={counts.paymentsPending} countLabel="payments waiting for approval" />
-            </li>
+            <>
+              <li>
+                <NavLink href="/payments" label="Payments" icon={CreditCard} onNavigate={onNavigate} count={counts.paymentsPending} countLabel="payments waiting for approval" />
+              </li>
+              <li>
+                <NavLink href="/ats-cv-filter" label="ATS CV Filter" icon={Filter} onNavigate={onNavigate} />
+              </li>
+            </>
           )}
           <li>
             <NavLink href="/settings" label="Settings" icon={Settings} onNavigate={onNavigate} />

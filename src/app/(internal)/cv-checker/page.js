@@ -7,9 +7,10 @@ import { FileCheck2, Sparkles, Upload, X } from 'lucide-react';
 import { api, useApi } from '@/lib/api';
 import { formatBytes, relativeTime, RESUME_FORMATS } from '@/lib/constants';
 import CvReport, { tone } from '@/components/CvReport';
-import { Alert, Button, Card, ConfirmDialog, cx, EmptyState, inputClass, LoadingState, PageHeader, Spinner, TextArea, TextInput, useToast } from '@/components/ui';
+import CvFix from '@/components/CvFix';
+import { Alert, Button, Card, ConfirmDialog, cx, EmptyState, inputClass, LoadingState, PageHeader, TextArea, TextInput, useToast } from '@/components/ui';
 
-function CheckForm({ applicationId, presetJob, onDone, aiEnabled }) {
+function CheckForm({ applicationId, presetJob, onDone }) {
   const toast = useToast();
   const router = useRouter();
   const jobs = useApi('/jobs');
@@ -137,11 +138,6 @@ function CheckForm({ applicationId, presetJob, onDone, aiEnabled }) {
         <Button type="submit" loading={busy} className="w-full">
           {!busy && <Sparkles className="h-4 w-4" aria-hidden />} {busy ? 'Reading the CV…' : 'Check CV'}
         </Button>
-        {busy && (
-          <p role="status" className="flex items-center gap-2 text-xs text-slate-500">
-            <Spinner className="h-4 w-4 text-violet-600" /> {aiEnabled ? 'The AI is reviewing the CV. This usually takes 15–40 seconds.' : 'Running the quick checks…'}
-          </p>
-        )}
         <p className="text-xs text-slate-500">Uploaded files are read and then deleted; only the report is saved, visible to you.</p>
       </form>
     </Card>
@@ -187,6 +183,19 @@ function CvChecker() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const check = id ? current.data?.check : null;
+  const pending = check?.aiStatus === 'pending' || check?.fix?.status === 'pending';
+
+  // The quick checks arrive at once; poll until the AI review (or a rewrite) is added
+  const { reload } = current;
+  const reloadHistory = history.reload;
+  useEffect(() => {
+    if (!pending) return;
+    const t = setInterval(reload, 1500);
+    return () => {
+      clearInterval(t);
+      reloadHistory();
+    };
+  }, [pending, reload, reloadHistory]);
 
   async function remove() {
     setDeleting(true);
@@ -211,7 +220,6 @@ function CvChecker() {
           <CheckForm
             applicationId={applicationId}
             presetJob={presetJob}
-            aiEnabled={history.data?.aiEnabled}
             onDone={(c) => {
               history.reload();
               router.push(`/cv-checker?id=${c._id}`);
@@ -233,7 +241,12 @@ function CvChecker() {
           ) : current.error ? (
             <Alert>{current.error.message}</Alert>
           ) : (
-            check && <CvReport check={check} onDelete={() => setConfirmDelete(true)} />
+            check && (
+              <div className="space-y-6">
+                <CvReport check={check} onDelete={() => setConfirmDelete(true)} />
+                <CvFix check={check} onChange={(c) => current.setData({ check: c })} />
+              </div>
+            )
           )}
         </div>
       </div>

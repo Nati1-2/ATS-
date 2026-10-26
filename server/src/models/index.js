@@ -228,7 +228,8 @@ const reportSchema = new Schema(
   { timestamps: true }
 );
 
-// CV checker results (utils/cvChecker.js). The CV text itself is not stored.
+// CV checker results (utils/cvChecker.js). The CV text is kept (hidden by default) only so the
+// person who ran the check can have it rewritten (utils/cvFixer.js); it is deleted with the check.
 const cvCheckSchema = new Schema(
   {
     createdBy: { type: ObjectId, ref: 'User', required: true, index: true },
@@ -241,9 +242,21 @@ const cvCheckSchema = new Schema(
     targetRole: String,
     quick: { type: Schema.Types.Mixed, required: true }, // rule-based checks
     review: { type: Schema.Types.Mixed }, // AI review (missing when AI is off or failed)
-    aiStatus: { type: String, enum: ['done', 'failed', 'disabled'], required: true },
+    aiStatus: { type: String, enum: ['pending', 'done', 'failed', 'disabled'], required: true },
     aiError: String,
     model: String,
+    cvText: { type: String, select: false },
+    // AI rewrite fixing the weaknesses the person chose
+    fix: {
+      status: { type: String, enum: ['pending', 'done', 'failed'] },
+      items: [String],
+      skills: [String],
+      notes: String,
+      result: { type: Schema.Types.Mixed }, // { improvedCv, changes, stillMissing }
+      error: String,
+      model: String,
+      startedAt: Date,
+    },
   },
   { timestamps: true }
 );
@@ -274,6 +287,18 @@ const seekerCheckSchema = new Schema(
     aiStatus: { type: String, enum: ['pending', 'done', 'failed', 'disabled'], required: true },
     aiError: String,
     model: String,
+    cvText: { type: String, select: false },
+    // AI rewrite fixing the weaknesses the person chose
+    fix: {
+      status: { type: String, enum: ['pending', 'done', 'failed'] },
+      items: [String],
+      skills: [String],
+      notes: String,
+      result: { type: Schema.Types.Mixed }, // { improvedCv, changes, stillMissing }
+      error: String,
+      model: String,
+      startedAt: Date,
+    },
   },
   { timestamps: true }
 );
