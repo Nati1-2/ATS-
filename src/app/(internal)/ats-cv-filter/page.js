@@ -73,6 +73,50 @@ function Improvements({ items }) {
   );
 }
 
+/** What the ATS score is made of, and which keywords were found. */
+function Breakdown({ components, keywords }) {
+  return (
+    <>
+      {components.length > 0 && (
+        <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {components.map((c) => (
+            <li key={c.key} className="rounded-lg bg-slate-50 p-3 ring-1 ring-inset ring-slate-200">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium text-slate-900">{c.label}</p>
+                <span className="text-xs text-slate-500">{c.weight}% of score</span>
+              </div>
+              <div className="mt-1">
+                <MatchMeter score={c.score} srLabel={false} />
+              </div>
+              <p className="mt-1 text-xs text-slate-600">{c.detail}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {keywords && (
+        <div className="mt-3 space-y-1.5 text-sm">
+          <p className="text-xs font-medium text-slate-600">
+            Keywords from the job ad · {keywords.found.length} of {keywords.found.length + keywords.missing.length} found
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {keywords.found.map((k) => (
+              <Badge key={k} className="bg-emerald-50 text-emerald-800 ring-emerald-200">
+                {k}
+              </Badge>
+            ))}
+            {keywords.missing.map((k) => (
+              <Badge key={k} className="bg-slate-100 text-slate-500 ring-slate-200 line-through">
+                {k}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 const CHECK_ICON = {
   pass: <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />,
   warn: <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" aria-hidden />,
@@ -189,40 +233,7 @@ function UploadCheck({ jobs }) {
             </div>
           )}
 
-          {result.components.length > 0 && (
-            <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              {result.components.map((c) => (
-                <li key={c.key} className="rounded-lg bg-slate-50 p-3 ring-1 ring-inset ring-slate-200">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-slate-900">{c.label}</p>
-                    <span className="text-xs text-slate-500">{c.weight}% of score</span>
-                  </div>
-                  <div className="mt-1">
-                    <MatchMeter score={c.score} srLabel={false} />
-                  </div>
-                  <p className="mt-1 text-xs text-slate-600">{c.detail}</p>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {result.keywords && (
-            <div className="mt-3 space-y-1.5 text-sm">
-              <p className="text-xs font-medium text-slate-600">Keywords from the job ad</p>
-              <div className="flex flex-wrap gap-1">
-                {result.keywords.found.map((k) => (
-                  <Badge key={k} className="bg-emerald-50 text-emerald-800 ring-emerald-200">
-                    {k}
-                  </Badge>
-                ))}
-                {result.keywords.missing.map((k) => (
-                  <Badge key={k} className="bg-slate-100 text-slate-500 ring-slate-200 line-through">
-                    {k}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          )}
+          <Breakdown components={result.components} keywords={result.keywords} />
 
           <h3 className="mb-2 mt-4 text-sm font-semibold text-slate-900">Weaknesses and how to improve</h3>
           <Improvements items={result.improvements} />
@@ -383,9 +394,10 @@ function AtsCvFilter() {
                       <details className="group mt-2">
                         <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-blue-700 hover:underline">
                           <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" aria-hidden />
-                          {a.improvements.length ? `${a.improvements.length} weakness${a.improvements.length === 1 ? '' : 'es'} · how to improve` : 'No weaknesses found'}
+                          Score breakdown · {a.improvements.length ? `${a.improvements.length} weakness${a.improvements.length === 1 ? '' : 'es'} · how to improve` : 'no weaknesses found'}
                         </summary>
-                        <div className="mt-2">
+                        <Breakdown components={a.components} keywords={a.keywords} />
+                        <div className="mt-3">
                           <Improvements items={a.improvements} />
                         </div>
                       </details>

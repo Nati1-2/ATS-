@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rateCv, jobKeywords, aiQualityOf } from '../src/utils/atsScore.js';
+import { rateCv, jobKeywords, aiQualityOf, stem } from '../src/utils/atsScore.js';
+import { quickChecks } from '../src/utils/cvChecker.js';
+import { scoreApplication } from '../src/utils/scoring.js';
 
 const JOB = {
   title: 'Frontend Developer',
@@ -106,4 +108,54 @@ test('AI quality: mean of impact, clarity and skills; none for an unreadable rev
   assert.equal(aiQualityOf({ readable: true, scores: { impact: { score: 50 }, clarity: { score: 70 }, skills: { score: 90 }, structure: { score: 0 } } }), 70);
   assert.equal(aiQualityOf({ readable: false, scores: {} }), null);
   assert.equal(aiQualityOf(null), null);
+});
+
+const ANALYST = {
+  title: 'Data Analyst',
+  mustHaveSkills: ['SQL', 'Power BI'],
+  minYearsExperience: 2,
+  description: 'We need a data analyst to build dashboards and reports. You will analyze data, write SQL queries, and share insights with stakeholders. Experience with data visualization and dashboards in Power BI.',
+  requirements: '2+ years of data analysis. Strong SQL queries. Data visualization. Stakeholder management.',
+};
+
+test('job keywords: word forms merged, listed skills and their fragments left out, no filler', () => {
+  const k = jobKeywords(ANALYST);
+  assert.ok(k.includes('sql queries') && k.includes('dashboards'));
+  assert.equal(k.filter((t) => /^stakeholders?$/.test(t)).length, 1);
+  for (const t of ['power', 'sql', 'need']) assert.ok(!k.includes(t), t);
+});
+
+test('keywords match other forms of the same word, as in a real ATS, but not other words', () => {
+  const cv = 'Experience\n- Wrote a SQL query library and analyzed sales data\n- Shared an insight report with each stakeholder';
+  const r = rateCv(cv, ANALYST);
+  for (const t of ['sql queries', 'analyze', 'insights', 'stakeholder', 'reports']) assert.ok(r.keywords.found.includes(t), t);
+  assert.ok(r.keywords.missing.includes('data visualization'));
+  assert.equal(stem('planned'), stem('planning'));
+  assert.equal(stem('organisation'), stem('organize'));
+  assert.equal(stem('node.js'), 'node.js');
+});
+
+test('a range of years is not a phone number', () => {
+  const contact = (t) => quickChecks(t).checks.find((c) => c.id === 'contact').status;
+  assert.equal(contact('sara@mail.com\nExperience\nAccountant (2014 - 2018)\n2019 - 2021'), 'warn');
+  assert.equal(contact('sara@mail.com\n0911 234 567'), 'pass');
+  assert.equal(contact('sara@mail.com\n+1 (555) 123-4567'), 'pass');
+});
+
+test('versions, codes and dates are not measurable results; real numbers are', () => {
+  const impact = (lines) => quickChecks(`Experience\n${lines.join('\n')}`).stats.quantifiedLines;
+  assert.equal(impact(['Used Windows 10 and Python 3.11', 'Worked to ISO 9001', 'Q3 planning in HTML5', 'Analyst | 2021/03 – Present', 'Ranked 1st']), 0);
+  assert.equal(impact(['- Built 12 dashboards', 'Cut costs by 20%', 'Managed a $2M budget', 'Upgraded to React 18 for 30,000 users']), 4);
+});
+
+test('year-first dates such as "2021/03 – Present" count towards experience', () => {
+  const cv = 'Experience\nData Analyst | 2021/03 – 2024/03\nAnalyst | 2019-01 – 2021-01';
+  assert.equal(scoreApplication(ANALYST, { resumeText: cv }).yearsExperience, 5);
+});
+
+test('the shown weights always add up to 100', () => {
+  const job = { title: 'Backend Engineer', description: 'Build and run the APIs behind our platform.', mustHaveSkills: ['Node.js'], minYearsExperience: 3 };
+  for (const aiQuality of [null, 60]) {
+    for (const j of [null, job]) assert.equal(rateCv(STRONG, j, { aiQuality }).components.reduce((t, c) => t + c.weight, 0), 100);
+  }
 });

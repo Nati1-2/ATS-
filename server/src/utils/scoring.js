@@ -204,9 +204,9 @@ function findSkill(skill, sectionLines, coverLetter) {
 // ---------------------------------------------------------------------------
 const MONTH = '(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
 const MONTH_INDEX = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
-// "Jan 2019", "1 January 2019", "03/2019", "15/03/2019" (day/month/year), or just "2019"
+// "Jan 2019", "1 January 2019", "03/2019", "15/03/2019" (day/month/year), "2019/03" or "2019-03" (year first), or just "2019"
 const DATE = (n) =>
-  `(?:(?:\\d{1,2}(?:st|nd|rd|th)?\\s+)?(?<m${n}>${MONTH})\\.?,?\\s+|(?:\\d{1,2}\\s*[/.]\\s*)?(?<n${n}>\\d{1,2})\\s*[/.]\\s*)?(?<y${n}>(?:19|20)\\d{2})`;
+  `(?:(?<ya${n}>(?:19|20)\\d{2})[/.-](?<na${n}>0?[1-9]|1[0-2])(?!\\d)|(?:(?:\\d{1,2}(?:st|nd|rd|th)?\\s+)?(?<m${n}>${MONTH})\\.?,?\\s+|(?:\\d{1,2}\\s*[/.]\\s*)?(?<n${n}>\\d{1,2})\\s*[/.]\\s*)?(?<y${n}>(?:19|20)\\d{2}))`;
 const RANGE = new RegExp(
   `${DATE(1)}\\s*(?:-|–|—|to|until|till)\\s*(?:${DATE(2)}|(?<present>present|current|now|today|date|ongoing))`,
   'gi'
@@ -235,9 +235,9 @@ export function estimateYears(sectionLines, structured, now = new Date()) {
       const g = m.groups;
       const month = (name, num, fallback) =>
         name ? MONTH_INDEX[name.slice(0, 3).toLowerCase()] : num && +num >= 1 && +num <= 12 ? +num - 1 : fallback;
-      const start = +g.y1 * 12 + month(g.m1, g.n1, 0);
-      let end = g.present ? nowIdx : +g.y2 * 12 + month(g.m2, g.n2, 0);
-      if (!g.present && !g.m1 && !g.n1 && !g.m2 && !g.n2 && g.y1 === g.y2) end += 6; // "2021 - 2021"
+      const start = +(g.y1 ?? g.ya1) * 12 + month(g.m1, g.n1 ?? g.na1, 0);
+      let end = g.present ? nowIdx : +(g.y2 ?? g.ya2) * 12 + month(g.m2, g.n2 ?? g.na2, 0);
+      if (!g.present && !g.m1 && !g.n1 && !g.na1 && !g.m2 && !g.n2 && !g.na2 && g.y1 === g.y2) end += 6; // "2021 - 2021"
       end = Math.min(end, nowIdx);
       if (end > start && end - start < 50 * 12) intervals.push([start, end]);
     }

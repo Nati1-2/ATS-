@@ -32,8 +32,8 @@ async function finishReview(checkId, { text, pdfPath, job, targetRole, file, ats
   try {
     const ai = await reviewCv({ text, pdfPath, job, targetRole, ats });
     const $set = { review: ai.review, aiStatus: ai.status, aiError: ai.error, model: ai.model };
-    // Re-rate with the AI's role keywords and writing-quality score
-    if (ai.review) $set.ats = rateCv(text, job, { fileName, roleKeywords: ai.review.roleKeywords, aiQuality: aiQualityOf(ai.review) });
+    // Re-rate with the AI's role keywords and writing-quality score, unless the CV tried to steer the AI
+    if (ai.review) $set.ats = rateCv(text, job, { fileName, roleKeywords: ai.review.roleKeywords, aiQuality: ai.review.injectionAttempt ? null : aiQualityOf(ai.review) });
     await CvCheck.updateOne({ _id: checkId }, { $set });
   } catch (err) {
     console.error(`[cv checker] ${checkId}: ${err.message}`);

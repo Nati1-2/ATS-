@@ -52,6 +52,8 @@ router.get('/', async (req, res) => {
         decision: rating.decision,
         keywordScore: rating.components.find((c) => c.key === 'requirements')?.score ?? null,
         knockouts: rating.knockouts,
+        components: rating.components.map(({ key, label, weight, score, detail }) => ({ key, label, weight, score, detail })),
+        keywords: rating.keywords,
         improvements: rating.improvements.map(({ id, area, severity, knockout, problem, fix, gain }) => ({ id, area, severity, knockout, problem, fix, gain })),
         checks: rating.checks.map(({ id, label, status }) => ({ id, label, status })),
       };

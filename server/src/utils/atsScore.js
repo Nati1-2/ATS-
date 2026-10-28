@@ -16,7 +16,10 @@
  */
 import path from 'node:path';
 import { quickChecks } from './cvChecker.js';
-import { scoreApplication } from './scoring.js';
+import { scoreApplication, skillAliases } from './scoring.js';
+import { TOKEN, segments, stem, stemIndex, hasTerm } from './keywords.js';
+
+export { stem };
 
 const WEIGHTS_WITH_JOB = { requirements: 45, keywords: 15, parse: 25, content: 15 };
 const WEIGHTS_NO_JOB = { parse: 60, content: 40 };
@@ -43,30 +46,41 @@ const FORMATS = { '.docx': 'pass', '.pdf': 'pass', '.doc': 'warn', '.odt': 'warn
 const SYMBOLS = /[─-➿⬀-⯿\u{1F000}-\u{1FAFF}-]/gu;
 
 const STOP = new Set(`a about above across after again against all also am an and any are as at be because been before being below between both but by can could did do does doing down during each either etc few for from further had has have having he her here hers him his how i if in into is it its itself just may me might more most must my no nor not now of off on once only or other our ours out over own per please same shall she should so some such than that the their theirs them then there these they this those through to too under until up upon us very via was we were what when where which while who whom why will with within without would yet you your yours
-ability able access build building built write writing use used matter plus across activities additional apply applicant applicants based benefits best candidate candidates closely company competitive create culture daily day degree demonstrated description desired environment equal excellent experience experienced expected focus following fast full good great growth help highly hire hiring ideal include including job join key knowledge least level looking make new offer opportunity opportunities paced plus position preferred proven related required requirement requirements responsibilities responsible role salary skills solid strong successful support team teams time understanding using well work working world year years`.split(/\s+/));
+ability able access build building built write writing use used matter plus across activities additional apply applicant applicants based benefits best candidate candidates closely company competitive create culture daily day degree demonstrated description desired environment equal excellent experience experienced expected focus following fast full good great growth help highly hire hiring ideal include including job join key knowledge least level looking make new offer opportunity opportunities paced plus position preferred proven related required requirement requirements responsibilities responsible role salary skills solid strong successful support team teams time understanding using well work working world year years need needs seeking ideally want ensure other minimum`.split(/\s+/));
 
-const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const has = (text, term) => new RegExp(`(?<![a-z0-9])${escape(term)}(?![a-z0-9])`, 'i').test(text);
-
-/** The terms a job ad repeats most (repeated two-word phrases, then single words), like the keyword list of a resume scanner. */
+/**
+ * The terms a job ad repeats most (repeated two-word phrases, then single words), like the keyword list of a
+ * resume scanner. Word forms are merged ("dashboard" / "dashboards"). Skills the job lists are already rated
+ * in the requirements match, so neither they nor their fragments ("power" of "Power BI") are repeated here.
+ */
 export function jobKeywords(job, limit = KEYWORD_COUNT) {
-  const text = [job.title, job.description, job.requirements].filter(Boolean).join('\n').toLowerCase();
+  const skillTerms = [...(job.mustHaveSkills || []), ...(job.niceToHaveSkills || [])].flatMap(skillAliases);
+  const skip = new Set(skillTerms.flatMap((t) => (t.match(TOKEN) || []).map(stem)));
   const words = new Map();
   const phrases = new Map();
-  const bump = (map, k) => map.set(k, (map.get(k) || 0) + 1);
-  // Phrases never cross a sentence or list boundary
-  for (const segment of text.split(/[.,;:!?()[\]\n/•|]+/)) {
-    const tokens = (segment.match(/[a-z][a-z0-9+#.]*[a-z0-9+#]|[a-z]/g) || []).map((w) => (STOP.has(w) || (w.length < 3 && !/[+#]/.test(w)) ? null : w));
+  // Counted by stem; shown in the form the ad uses most
+  const bump = (map, key, form) => {
+    const e = map.get(key) ?? { n: 0, forms: new Map() };
+    e.n += 1;
+    e.forms.set(form, (e.forms.get(form) || 0) + 1);
+    map.set(key, e);
+  };
+  const form = (e) => [...e.forms.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
+  for (const segment of segments([job.title, job.description, job.requirements].filter(Boolean).join('\n'))) {
+    const tokens = (segment.match(TOKEN) || []).map((w) => (STOP.has(w) || (w.length < 3 && !/[+#]/.test(w)) ? null : w));
     tokens.forEach((w, i) => {
       if (!w) return;
-      bump(words, w);
-      if (tokens[i + 1]) bump(phrases, `${w} ${tokens[i + 1]}`);
+      if (!skip.has(stem(w))) bump(words, stem(w), w);
+      const next = tokens[i + 1];
+      if (next) bump(phrases, `${stem(w)} ${stem(next)}`, `${w} ${next}`);
     });
   }
-  const picked = [...phrases.entries()].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k]) => k);
-  const inPhrase = new Set(picked.flatMap((p) => p.split(' ')));
-  const single = [...words.entries()].filter(([w]) => !inPhrase.has(w)).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k]) => k);
-  return [...picked, ...single].slice(0, limit);
+  const byCount = (map) => [...map.entries()].sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0]));
+  const isSkill = (key) => key.split(' ').every((w) => skip.has(w));
+  const picked = byCount(phrases).filter(([key, e]) => e.n >= 2 && !isSkill(key));
+  const inPhrase = new Set(picked.flatMap(([key]) => key.split(' ')));
+  const single = byCount(words).filter(([key]) => !inPhrase.has(key));
+  return [...picked, ...single].map(([, e]) => form(e)).slice(0, limit);
 }
 
 const weighted = (weights, statusOf) => {
@@ -96,6 +110,7 @@ const FIXES = {
   bullets: 'Split long paragraphs into bullet points of one or two lines.',
   pronouns: 'Leave out "I", "my" and "me" in bullet points.',
   personal: 'Remove date of birth, marital status, religion, nationality and similar personal details.',
+  injection: 'Remove any text addressed to AI or screening systems, including hidden white or tiny text. It is found and treated as dishonest.',
 };
 const AREA = { parse: 'Parseability', content: 'Content' };
 
@@ -160,7 +175,7 @@ function findImprovements({ checks, components, match, keywords, job, knockouts,
       area: 'Keywords',
       severity: keywords.missing.length > n / 2 ? 'high' : 'medium',
       problem: `${keywords.missing.length} of ${n} top keywords ${keywords.source === 'role' ? 'for this role' : 'from the job ad'} are missing: ${keywords.missing.join(', ')}.`,
-      fix: 'Use these exact words where they truly apply. ATSs match words literally, so "REST APIs" and "APIs" count as different terms.',
+      fix: 'Use these words where they truly apply. ATSs match word forms ("dashboard" and "dashboards"), but not synonyms or abbreviations, so "REST APIs" and "APIs" count as different terms.',
       gain: (weightOf('keywords') / total) * (keywords.missing.length / n) * 100,
     });
   }
@@ -176,10 +191,13 @@ function findImprovements({ checks, components, match, keywords, job, knockouts,
  * are matched like a job ad's keywords; `aiQuality` (aiQualityOf) adds the AI's writing-quality score. Returns
  * { score, grade, decision, components: [{ key, label, weight (% of the score), score, detail }], knockouts, improvements, checks, keywords?, jobMatch? }.
  */
-export function rateCv(text, job = null, { fileName, roleKeywords, aiQuality = null } = {}) {
+export function rateCv(text, job = null, { fileName, roleKeywords, aiQuality: aiScore = null } = {}) {
   const quick = quickChecks(text, job);
   const checks = [...quick.checks];
   const status = (id) => checks.find((c) => c.id === id)?.status ?? 'pass';
+  // Hidden instructions may have swayed the AI, so its score is left out, and the CV always goes to a person
+  const manipulated = status('injection') === 'fail';
+  const aiQuality = manipulated ? null : aiScore;
 
   const ext = fileName ? path.extname(fileName).toLowerCase() : null;
   if (ext) {
@@ -208,14 +226,16 @@ export function rateCv(text, job = null, { fileName, roleKeywords, aiQuality = n
     const terms = jobKeywords(job);
     if (match) components.unshift({ key: 'requirements', label: 'Requirements match', score: match.score, detail: match.components.map((c) => `${c.label}: ${c.detail}`).join(' · ') });
     if (terms.length) {
-      const found = terms.filter((t) => has(text, t));
+      const index = stemIndex(text);
+      const found = terms.filter((t) => hasTerm(index, t));
       keywords = { source: 'job', found, missing: terms.filter((t) => !found.includes(t)) };
       components.splice(match ? 1 : 0, 0, { key: 'keywords', label: 'Job description keywords', score: Math.round((found.length / terms.length) * 100), detail: `${found.length} of ${terms.length} top keywords from the job ad found` });
     }
     if (match?.missingMustHave.length) knockouts.push(`Missing required skills: ${match.missingMustHave.join(', ')}`);
   } else if (roleKeywords?.length) {
     const terms = [...new Set(roleKeywords.map((t) => String(t).trim().toLowerCase()).filter(Boolean))].slice(0, KEYWORD_COUNT);
-    const found = terms.filter((t) => has(text, t));
+    const index = stemIndex(text);
+    const found = terms.filter((t) => hasTerm(index, t));
     keywords = { source: 'role', found, missing: terms.filter((t) => !found.includes(t)) };
     components.unshift({ key: 'keywords', label: 'Role keywords', score: Math.round((found.length / terms.length) * 100), detail: `${found.length} of ${terms.length} keywords an ATS would search for in this role found` });
   }
@@ -231,14 +251,21 @@ export function rateCv(text, job = null, { fileName, roleKeywords, aiQuality = n
   if (knockouts.length) score = Math.min(score, MISSING_MUST_HAVE_CAP);
 
   const improvements = findImprovements({ checks, components, match, keywords, job, knockouts, status });
+  if (manipulated) {
+    const c = checks.find((x) => x.id === 'injection');
+    improvements.unshift({ id: 'injection', area: 'Honesty', severity: 'high', problem: `${c.detail} The CV cannot pass automatically.`, fix: FIXES.injection, gain: 1 });
+  }
+  let decision = decide(score, knockouts);
+  if (manipulated && decision === 'pass') decision = 'review';
   // Shown as whole percentages that add up to 100 (largest remainder)
   const shares = components.map((c) => (c.weight / totalWeight) * 100);
   const whole = shares.map(Math.floor);
   const order = shares.map((v, i) => [v - whole[i], i]).sort((a, b) => b[0] - a[0]);
-  for (let k = 0; k < 100 - whole.reduce((t, n) => t + n, 0); k++) whole[order[k][1]] += 1;
+  const short = 100 - whole.reduce((t, n) => t + n, 0);
+  for (let k = 0; k < short; k++) whole[order[k][1]] += 1;
   components.forEach((c, i) => {
     delete c.subWeights;
     c.weight = whole[i];
   });
-  return { score, grade: atsGrade(score), decision: decide(score, knockouts), components, knockouts, improvements, checks, keywords, jobMatch: quick.jobMatch };
+  return { score, grade: atsGrade(score), decision, components, knockouts, improvements, checks, keywords, jobMatch: quick.jobMatch };
 }
