@@ -81,3 +81,17 @@ test('CV is sent as untrusted data with the fairness rules; target job is includ
   assert.match(sent.config.systemInstruction, /not instructions/);
   assert.match(sent.config.systemInstruction, /Never comment on or infer name, gender, age/);
 });
+
+test('AI review: repeatable (temperature 0, fixed seed), told the parser findings, and returns role keywords', async () => {
+  let sent;
+  const review = { readable: true, overallScore: 60, headline: 'h', summary: 's', detectedRole: 'r', seniority: 'mid', scores: {}, strengths: [], weaknesses: [], suggestions: [], rewrites: [], sectionFeedback: [], missingKeywords: [], tips: [], roleKeywords: ['React', 'React', 'Jest'], injectionAttempt: false };
+  const ats = { score: 55, knockouts: ['Missing required skills: Rust'], keywords: { found: ['react'], missing: ['rust'] }, checks: [{ id: 'impact', label: 'Measurable results', status: 'fail', detail: 'No numbers' }] };
+  const r = await reviewCv({ text: GOOD, targetRole: 'Frontend developer', ats }, { generate: async (req) => ((sent = req), { text: JSON.stringify(review) }) });
+  assert.equal(sent.config.temperature, 0);
+  assert.equal(typeof sent.config.seed, 'number');
+  const text = sent.contents[0].parts.map((p) => p.text).join('\n');
+  assert.match(text, /RULE-BASED ATS FINDINGS/);
+  assert.match(text, /Knockouts: Missing required skills: Rust/);
+  assert.match(text, /Measurable results \(fail\)/);
+  assert.deepEqual(r.review.roleKeywords, ['React', 'Jest']);
+});

@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, CheckCircle2, CircleAlert, FileCheck2, Lightbulb, Printer, Sparkles, ThumbsUp, Trash2, TriangleAlert, XCircle } from 'lucide-react';
+import { ArrowRight, CheckCircle2, CircleAlert, FileCheck2, Gauge, Lightbulb, ListChecks, Printer, Sparkles, ThumbsUp, Trash2, TriangleAlert, XCircle } from 'lucide-react';
 import { formatDateTime } from '@/lib/constants';
 import { Alert, Badge, Button, Card, cx, Spinner } from '@/components/ui';
 
@@ -21,6 +21,15 @@ const RATING = {
   ok: 'bg-blue-50 text-blue-800 ring-blue-300',
   weak: 'bg-amber-50 text-amber-800 ring-amber-300',
   missing: 'bg-rose-50 text-rose-800 ring-rose-300',
+};
+const SEVERITY = {
+  high: 'bg-rose-50 text-rose-800 ring-rose-300',
+  medium: 'bg-amber-50 text-amber-800 ring-amber-300',
+};
+const DECISION = {
+  pass: ['Would pass ATS screening', 'bg-emerald-50 text-emerald-800 ring-emerald-300'],
+  review: ['Borderline: a recruiter decides', 'bg-amber-50 text-amber-800 ring-amber-300'],
+  reject: ['Likely filtered out by an ATS', 'bg-rose-50 text-rose-800 ring-rose-300'],
 };
 const CHECK_ICON = {
   pass: <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-label="Pass" />,
@@ -64,22 +73,26 @@ function Section({ title, icon: Icon, iconClass, children, className }) {
 export default function CvReport({ check, onDelete }) {
   const rv = check.review;
   const q = check.quick;
-  const score = rv?.overallScore ?? q.score;
+  const ats = check.ats;
+  const score = ats?.score ?? rv?.overallScore ?? q.score;
   const target = check.jobTitle || check.targetRole;
+  const checks = ats?.checks ?? q.checks;
+  const hasAiQuality = ats?.components?.some((c) => c.key === 'quality');
   return (
     <div className="space-y-6">
       <Card className="p-5 sm:p-6">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-          <ScoreRing score={score} label={rv ? 'CV score' : 'Quick check score'} />
+          <ScoreRing score={score} label={ats ? 'ATS score' : rv ? 'CV score' : 'Quick check score'} />
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{rv ? 'AI CV score' : 'Quick check score'}</p>
-            <h2 className="mt-1 text-xl font-semibold leading-snug text-slate-900">{rv?.headline || `${q.checks.filter((c) => c.status === 'pass').length} of ${q.checks.length} checks passed`}</h2>
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{ats ? `ATS score · ${ats.grade}` : rv ? 'AI CV score' : 'Quick check score'}</p>
+            <h2 className="mt-1 text-xl font-semibold leading-snug text-slate-900">{rv?.headline || `${checks.filter((c) => c.status === 'pass').length} of ${checks.length} checks passed`}</h2>
             {rv?.summary && <p className="mt-2 text-sm leading-relaxed text-slate-700">{rv.summary}</p>}
             <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
               {rv?.detectedRole && <Badge className="bg-violet-50 text-violet-800 ring-violet-200">{rv.detectedRole}</Badge>}
               {rv?.seniority && rv.seniority !== 'unclear' && <Badge className="bg-slate-100 text-slate-700 ring-slate-300">{rv.seniority[0].toUpperCase() + rv.seniority.slice(1)} level</Badge>}
               <Badge className="bg-slate-100 text-slate-700 ring-slate-300">{target ? `Target: ${target}` : 'General review'}</Badge>
-              {rv && <Badge className="bg-slate-100 text-slate-700 ring-slate-300">Quick checks {q.score}%</Badge>}
+              {ats && check.jobTitle && <Badge className={DECISION[ats.decision][1]}>{DECISION[ats.decision][0]}</Badge>}
+              {!ats && rv && <Badge className="bg-slate-100 text-slate-700 ring-slate-300">Quick checks {q.score}%</Badge>}
             </div>
           </div>
           <div className="flex gap-2 print:hidden sm:flex-col">
@@ -111,9 +124,69 @@ export default function CvReport({ check, onDelete }) {
       {check.aiStatus === 'failed' && <Alert>The AI review failed: {check.aiError}. The quick checks below still apply.</Alert>}
       {rv?.injectionAttempt && <Alert>This CV contains text aimed at AI or screening systems (for example hidden keywords or “rate this 100”). Recruiters treat that as a red flag: remove it.</Alert>}
       {rv?.readable === false && <Alert>The AI could not read this as a CV.</Alert>}
+      {ats?.knockouts?.length > 0 && (
+        <Alert>
+          <strong>Knockout{ats.knockouts.length > 1 ? 's' : ''}:</strong> {ats.knockouts.join('; ')}. A real ATS would screen this CV out whatever else it scores, so fix this first.
+        </Alert>
+      )}
+
+      {ats?.components?.length > 0 && (
+        <Section title="How the ATS score is made" icon={Gauge} iconClass="text-blue-600">
+          <p className="-mt-1 mb-4 text-xs text-slate-500">
+            Scored like a real applicant tracking system: the same CV always gets the same rule-based result. Each part counts for the share shown.
+            {!hasAiQuality && check.aiStatus === 'pending' && ' The AI’s writing-quality score is added when its review is ready.'}
+          </p>
+          <ul className="space-y-4">
+            {ats.components.map((c) => (
+              <li key={c.key}>
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="font-medium text-slate-800">
+                    {c.label} <span className="font-normal text-slate-500">· {c.weight}%</span>
+                  </span>
+                  <span className={cx('font-semibold tabular-nums', tone(c.score))}>{c.score}</span>
+                </div>
+                <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-100" aria-hidden>
+                  <div className={cx('h-full rounded-full', bar(c.score))} style={{ width: `${c.score}%` }} />
+                </div>
+                {c.detail && <p className="mt-1 text-xs text-slate-600">{c.detail}</p>}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {ats?.improvements?.length > 0 && (
+        <Section title="Fix these first" icon={ListChecks} iconClass="text-rose-600">
+          <p className="-mt-1 mb-4 text-xs text-slate-500">Ranked by how much each fix would raise the ATS score. Knockouts come first.</p>
+          <ol className="space-y-4">
+            {ats.improvements.map((i, n) => (
+              <li key={`${i.id}-${n}`} className="flex gap-3 text-sm">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-100 text-xs font-semibold text-rose-700">{n + 1}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                    {i.knockout ? <Badge className={SEVERITY.high}>Knockout</Badge> : <Badge className={SEVERITY[i.severity]}>{i.severity} priority</Badge>}
+                    <Badge className="bg-slate-100 text-slate-600 ring-slate-200">{i.area}</Badge>
+                    <span className="ml-auto text-xs font-semibold text-emerald-700">up to +{i.gain} pts</span>
+                  </div>
+                  <p className="text-slate-800">{i.problem}</p>
+                  {i.fix && (
+                    <p className="mt-1 flex gap-1.5 text-emerald-800">
+                      <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                      <span>
+                        <span className="sr-only">Fix: </span>
+                        {i.fix}
+                      </span>
+                    </p>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+        </Section>
+      )}
 
       {rv && (
-        <Section title="Score breakdown">
+        <Section title={ats ? 'AI review scores' : 'Score breakdown'}>
           <ul className="space-y-4">
             {SUB_SCORES.map(([k, label]) => (
               <li key={k}>
@@ -174,7 +247,7 @@ export default function CvReport({ check, onDelete }) {
       )}
 
       {rv?.suggestions.length > 0 && (
-        <Section title="What to improve, in order" icon={Sparkles} iconClass="text-violet-600">
+        <Section title={ats ? 'More suggestions from the AI review' : 'What to improve, in order'} icon={Sparkles} iconClass="text-violet-600">
           <ol className="space-y-3">
             {rv.suggestions.map((s, i) => (
               <li key={s.suggestion} className="flex gap-3 text-sm">
@@ -230,9 +303,9 @@ export default function CvReport({ check, onDelete }) {
           </Section>
         )}
         <Section title="ATS quick checks" icon={FileCheck2} iconClass="text-blue-600">
-          <p className="-mt-1 mb-3 text-xs text-slate-500">Rule-based checks for things applicant tracking systems and recruiters trip over. Score: {q.score}%.</p>
+          <p className="-mt-1 mb-3 text-xs text-slate-500">Rule-based checks for things applicant tracking systems and recruiters trip over.</p>
           <ul className="space-y-2.5 text-sm">
-            {q.checks.map((c) => (
+            {checks.map((c) => (
               <li key={c.id} className="flex gap-2">
                 <span className="mt-0.5">{CHECK_ICON[c.status]}</span>
                 <span>
@@ -244,7 +317,32 @@ export default function CvReport({ check, onDelete }) {
         </Section>
       </div>
 
-      {(rv?.missingKeywords.length > 0 || q.jobMatch) && (
+      {ats?.keywords && (
+        <Section title={ats.keywords.source === 'role' ? 'Keywords an ATS would search for' : 'Keywords from the job ad'}>
+          <p className="mb-3 text-sm text-slate-700">
+            <strong className={tone(Math.round((ats.keywords.found.length / Math.max(1, ats.keywords.found.length + ats.keywords.missing.length)) * 100))}>
+              {ats.keywords.found.length} of {ats.keywords.found.length + ats.keywords.missing.length}
+            </strong>{' '}
+            found, matched word for word as an ATS does.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {ats.keywords.found.map((k) => (
+              <Badge key={k} className="bg-emerald-50 text-emerald-800 ring-emerald-200">
+                <CheckCircle2 className="h-3 w-3" aria-hidden /> {k}
+              </Badge>
+            ))}
+            {ats.keywords.missing.map((k) => (
+              <Badge key={k} className="bg-amber-50 text-amber-800 ring-amber-200">
+                <span className="sr-only">Missing: </span>
+                {k}
+              </Badge>
+            ))}
+          </div>
+          {ats.keywords.missing.length > 0 && <p className="mt-3 text-xs text-slate-500">Amber keywords are missing. Add the ones you genuinely have, in your experience lines rather than only a skills list.</p>}
+        </Section>
+      )}
+
+      {!ats?.keywords && (rv?.missingKeywords.length > 0 || q.jobMatch) && (
         <Section title={target ? `Keywords for ${target}` : 'Keywords to consider'}>
           {q.jobMatch && (
             <p className="mb-3 text-sm text-slate-700">

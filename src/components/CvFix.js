@@ -11,17 +11,19 @@ import { Alert, Badge, Button, Card, ConfirmDialog, cx, Spinner, TextArea, useTo
 function fixOptions(check) {
   const rv = check.review || {};
   const opts = [];
+  // The ATS rating's fixes, ranked by points; knockouts and high-severity ones start ticked
+  for (const i of check.ats?.improvements || []) if (!['must', 'nice', 'jobKeywords', 'readable'].includes(i.id)) opts.push({ text: `${i.problem} — ${i.fix}`.slice(0, 600), area: `ATS · +${i.gain} pts`, on: i.severity === 'high' });
   for (const w of rv.weaknesses || []) opts.push({ text: `${w.issue} — ${w.fix}`, area: 'Weakness', on: true });
   for (const s of rv.suggestions || []) opts.push({ text: s.suggestion, area: `Suggestion · ${s.area}`, on: s.priority === 'high' });
   if (rv.rewrites?.length) opts.push({ text: 'Use stronger versions of the weak lines the review pointed out.', area: 'Rewrites', on: true });
-  for (const c of check.quick?.checks || []) if (c.status !== 'pass' && c.id !== 'keywords') opts.push({ text: `${c.label}: ${c.detail}`, area: 'ATS check', on: c.status === 'fail' });
+  if (!check.ats) for (const c of check.quick?.checks || []) if (c.status !== 'pass' && c.id !== 'keywords') opts.push({ text: `${c.label}: ${c.detail}`, area: 'ATS check', on: c.status === 'fail' });
   const seen = new Set();
   return opts.filter((o) => !seen.has(o.text) && seen.add(o.text));
 }
 
 function missingSkills(check) {
   const jm = check.quick?.jobMatch;
-  return [...new Set([...(jm?.missingMustHave || []), ...(jm?.missingNiceToHave || []), ...(check.review?.missingKeywords || [])])].slice(0, 15);
+  return [...new Set([...(jm?.missingMustHave || []), ...(jm?.missingNiceToHave || []), ...(check.ats?.keywords?.missing || []), ...(check.review?.missingKeywords || [])].filter((k) => k.length <= 60))].slice(0, 15);
 }
 
 function FixForm({ check, onStarted }) {

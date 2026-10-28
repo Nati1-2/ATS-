@@ -128,8 +128,14 @@ Detailed reference for every feature: data model, permissions, CV screening, AI,
 **CV checker** (`/cv-checker`, `server/src/utils/cvChecker.js`): in the sidebar under AI. It reviews any CV and explains how to make it better.
 - **Input:** upload a file (any accepted format, including scanned PDFs, which the AI reads), paste the text, or open it from a candidate profile with **Check CV quality** on the Résumé tab.
 - **Compare with:** one of your jobs, another role you type in, or nothing for a general review.
-- **AI review:**
-  - An overall score (0–100) with a one-line verdict and summary.
+- **ATS score** (`server/src/utils/atsScore.js`): the main score, worked out the way a real applicant tracking system does, so the same CV always gets the same result.
+  - With a job: requirements match 45%, job-ad keywords 15%, parseability 25%, content 15%. A missing must-have skill is a knockout that caps the score at 65.
+  - With a typed role or a general review: parseability and content, plus the keywords an ATS would search for in that role (suggested by the AI, then matched word for word).
+  - Once the AI review is ready, its writing-quality score (impact, clarity, skills) counts for 30%.
+  - **Fix these first:** every weakness, ranked by how many points fixing it would add (knockouts first), each with an exact fix.
+- **Ask about this report:** after the report, a chat answers follow-up questions ("why is my score 62?", "rewrite my summary for this job") using the CV and its report. The conversation is saved with the check. Job seekers get it with the upgrade.
+- **AI review** (temperature 0 with a fixed seed, and told the parser's findings so it agrees with them):
+  - A one-line verdict and summary.
   - Sub-scores with comments for impact, clarity, structure, skills and ATS readability.
   - Strengths, and weaknesses that each say why they matter and how to fix them.
   - Suggestions ordered by priority.

@@ -66,6 +66,16 @@ export const aiChatLimiter = rateLimit({
   handler: (_req, res) => res.status(429).json({ error: 'You have sent a lot of questions this hour. Please try again a little later.' }),
 });
 
+// Questions about a CV report per job seeker
+export const seekerChatLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: num('SEEKER_CHAT_MESSAGES_PER_HOUR', 30),
+  keyGenerator: (req) => `seeker:${req.seeker._id}`,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => res.status(429).json({ error: 'You have asked a lot of questions this hour. Please try again a little later.' }),
+});
+
 // AI reports per signed-in user
 export const aiReportLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,

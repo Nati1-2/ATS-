@@ -3,12 +3,14 @@ import path from 'node:path';
 import { z } from 'zod';
 import { Application, CvCheck, Job } from '../models/index.js';
 import { assertJobAccess } from '../middleware/auth.js';
-import { aiCvCheckLimiter } from '../middleware/rateLimits.js';
+import { aiChatLimiter, aiCvCheckLimiter } from '../middleware/rateLimits.js';
 import { HttpError, validate, assertObjectId } from '../utils/http.js';
 import { resumeUpload, verifyResumeSignature, removeFile, fetchFile } from '../utils/uploads.js';
 import { extractResumeText } from '../utils/screening.js';
 import { aiEnabled } from '../utils/ai.js';
 import { quickChecks, reviewCv } from '../utils/cvChecker.js';
+import { aiQualityOf, rateCv } from '../utils/atsScore.js';
+import { askAboutCv } from '../utils/cvChat.js';
 import { fixCv, cvToDocx } from '../utils/cvFixer.js';
 import { inBackground } from '../utils/aiQueue.js';
 
@@ -26,10 +28,13 @@ const checkSchema = z.object({
 const STALE_REVIEW_MS = 3 * 60 * 1000;
 
 /** The AI review, run after the response is sent. The uploaded file (if any) is deleted at the end. */
-async function finishReview(checkId, { text, pdfPath, job, targetRole, file }) {
+async function finishReview(checkId, { text, pdfPath, job, targetRole, file, ats, fileName }) {
   try {
-    const ai = await reviewCv({ text, pdfPath, job, targetRole });
-    await CvCheck.updateOne({ _id: checkId }, { $set: { review: ai.review, aiStatus: ai.status, aiError: ai.error, model: ai.model } });
+    const ai = await reviewCv({ text, pdfPath, job, targetRole, ats });
+    const $set = { review: ai.review, aiStatus: ai.status, aiError: ai.error, model: ai.model };
+    // Re-rate with the AI's role keywords and writing-quality score
+    if (ai.review) $set.ats = rateCv(text, job, { fileName, roleKeywords: ai.review.roleKeywords, aiQuality: aiQualityOf(ai.review) });
+    await CvCheck.updateOne({ _id: checkId }, { $set });
   } catch (err) {
     console.error(`[cv checker] ${checkId}: ${err.message}`);
     await CvCheck.updateOne({ _id: checkId }, { $set: { aiStatus: 'failed', aiError: 'The AI review could not be completed' } }).catch(() => {});
@@ -65,7 +70,7 @@ async function savedCvText(check) {
   return '';
 }
 
-const LIST_FIELDS = 'source fileName candidateName jobTitle targetRole quick.score review.overallScore review.headline aiStatus createdAt';
+const LIST_FIELDS = 'source fileName candidateName jobTitle targetRole quick.score ats.score review.overallScore review.headline aiStatus createdAt';
 
 // Check a CV: an uploaded file, pasted text, or an applicant's CV. Optional target job or role.
 // Replies with the quick checks straight away; the AI review is added in the background (poll GET /:id).
@@ -109,6 +114,7 @@ router.post('/', aiCvCheckLimiter, resumeUpload.single('resume'), async (req, re
     }
 
     const quick = quickChecks(text, job);
+    const ats = rateCv(text, job, { fileName: meta.fileName });
     const runAi = aiEnabled() && Boolean(text || pdfPath);
     const check = await CvCheck.create({
       createdBy: req.user._id,
@@ -118,11 +124,12 @@ router.post('/', aiCvCheckLimiter, resumeUpload.single('resume'), async (req, re
       jobTitle: job?.title,
       targetRole: job ? undefined : body.targetRole || undefined,
       quick,
+      ats,
       cvText: text || undefined,
       aiStatus: runAi ? 'pending' : 'disabled',
     });
     if (runAi) {
-      inBackground(finishReview(check._id, { text, pdfPath, job, targetRole: body.targetRole, file }));
+      inBackground(finishReview(check._id, { text, pdfPath, job, targetRole: body.targetRole, file, ats, fileName: meta.fileName }));
       handedOff = true;
     }
     res.status(201).json({ check });
@@ -193,6 +200,25 @@ router.post('/:id/fix', aiCvCheckLimiter, resumeUpload.single('resume'), async (
     // Uploaded files are only read, never kept
     if (file) removeFile(file.path);
   }
+});
+
+// Ask a follow-up question about the report; the conversation is saved with the check
+router.post('/:id/chat', aiChatLimiter, async (req, res) => {
+  assertObjectId(req.params.id, 'CV check');
+  const { message } = validate(z.object({ message: z.string().trim().min(1, 'Type a question').max(2000) }), req.body ?? {});
+  if (!aiEnabled()) throw new HttpError(400, 'AI isn’t set up on this server, so chat is not available');
+  const check = await CvCheck.findOne({ _id: req.params.id, createdBy: req.user._id }).select('+cvText');
+  if (!check) throw new HttpError(404, 'CV check not found');
+  const job = check.job ? await Job.findById(check.job) : null;
+  const chat = await askAboutCv(check, { text: await savedCvText(check), job, message });
+  res.json({ chat });
+});
+
+router.delete('/:id/chat', async (req, res) => {
+  assertObjectId(req.params.id, 'CV check');
+  const r = await CvCheck.updateOne({ _id: req.params.id, createdBy: req.user._id }, { $set: { chat: [] } });
+  if (!r.matchedCount) throw new HttpError(404, 'CV check not found');
+  res.json({ chat: [] });
 });
 
 // The rewritten CV as a Word file

@@ -7,12 +7,14 @@ import { z } from 'zod';
 import { Application, Payment, Seeker, SeekerCheck } from '../models/index.js';
 import { cookieOptions } from '../middleware/auth.js';
 import { SEEKER_COOKIE, currentSeeker, requireSeeker, seekerIdFromCookie, setSeekerCookie } from '../middleware/seekerAuth.js';
-import { accountLimiter, seekerCheckLimiter, seekerLoginLimiter } from '../middleware/rateLimits.js';
+import { accountLimiter, seekerChatLimiter, seekerCheckLimiter, seekerLoginLimiter } from '../middleware/rateLimits.js';
 import { HttpError, validate, assertObjectId } from '../utils/http.js';
 import { resumeUpload, verifyResumeSignature, removeFile } from '../utils/uploads.js';
 import { extractResumeText } from '../utils/screening.js';
 import { aiEnabled } from '../utils/ai.js';
 import { quickChecks, reviewCv } from '../utils/cvChecker.js';
+import { aiQualityOf, rateCv } from '../utils/atsScore.js';
+import { askAboutCv } from '../utils/cvChat.js';
 import { inBackground } from '../utils/aiQueue.js';
 import { hashToken } from './auth.js';
 
@@ -43,7 +45,7 @@ const publicSeeker = (s) => ({ id: s._id, name: s.name, email: s.email, premium:
 const STALE_REVIEW_MS = 5 * 60 * 1000;
 const isPending = (c) => c.aiStatus === 'pending' && Date.now() - new Date(c.createdAt).getTime() < STALE_REVIEW_MS;
 // No score while the AI review runs, so the number doesn't change under the person's eyes
-const checkScore = (c) => (isPending(c) ? null : (c.review?.overallScore ?? c.quick?.score ?? 0));
+const checkScore = (c) => (isPending(c) ? null : (c.ats?.score ?? c.review?.overallScore ?? c.quick?.score ?? 0));
 // Until the upgrade is approved a seeker sees only the score
 const checkSummary = (c, premium) => ({ _id: c._id, fileName: c.fileName, targetRole: c.targetRole, createdAt: c.createdAt, score: checkScore(c), pending: isPending(c), locked: !premium });
 
@@ -57,6 +59,7 @@ async function processCheck(checkId, { file, seekerId, claimTokenHash, targetRol
     // A scanned PDF has no text: the AI reads the file itself
     const pdfPath = !text && path.extname(file.filename) === '.pdf' ? file.path : null;
     const runAi = aiEnabled() && Boolean(text || pdfPath);
+    const ats = rateCv(text, null, { fileName: file.originalname });
     await SeekerCheck.create({
       _id: checkId,
       seeker: seekerId || undefined,
@@ -64,12 +67,17 @@ async function processCheck(checkId, { file, seekerId, claimTokenHash, targetRol
       fileName: file.originalname,
       targetRole: targetRole || undefined,
       quick: quickChecks(text),
+      ats,
+      // Kept (hidden) so the person can ask questions about their CV after the report
+      cvText: text || undefined,
       aiStatus: runAi ? 'pending' : 'disabled',
     });
     if (!runAi) return;
     try {
-      const ai = await reviewCv({ text, pdfPath, targetRole });
-      await SeekerCheck.updateOne({ _id: checkId }, { $set: { review: ai.review, aiStatus: ai.status, aiError: ai.error, model: ai.model } });
+      const ai = await reviewCv({ text, pdfPath, targetRole, ats });
+      const $set = { review: ai.review, aiStatus: ai.status, aiError: ai.error, model: ai.model };
+      if (ai.review) $set.ats = rateCv(text, null, { fileName: file.originalname, roleKeywords: ai.review.roleKeywords, aiQuality: aiQualityOf(ai.review) });
+      await SeekerCheck.updateOne({ _id: checkId }, { $set });
     } catch (err) {
       console.error(`[cv review] ${checkId}: ${err.message}`);
       await SeekerCheck.updateOne({ _id: checkId }, { $set: { aiStatus: 'failed', aiError: 'The AI review could not be completed' } });
@@ -148,7 +156,7 @@ router.use(requireSeeker);
 
 router.get('/checks', async (req, res) => {
   await claimChecks(req, req.seeker);
-  const checks = await SeekerCheck.find({ seeker: req.seeker._id }).select('fileName targetRole createdAt aiStatus quick.score review.overallScore').sort({ createdAt: -1 }).limit(50).lean();
+  const checks = await SeekerCheck.find({ seeker: req.seeker._id }).select('fileName targetRole createdAt aiStatus quick.score ats.score review.overallScore').sort({ createdAt: -1 }).limit(50).lean();
   res.json({ checks: checks.map((c) => checkSummary(c, Boolean(req.seeker.premiumAt))) });
 });
 
@@ -161,6 +169,26 @@ router.get('/checks/:id', async (req, res) => {
   // A review cut short shows as failed, with the quick checks still there
   const aiStatus = check.aiStatus === 'pending' ? 'failed' : check.aiStatus;
   res.json({ check: { ...check, aiStatus, aiError: aiStatus === 'failed' ? check.aiError || 'The AI review could not be completed' : undefined, score: checkScore(check), pending: false, locked: false } });
+});
+
+// Upgraded seekers can ask follow-up questions about a finished report
+router.post('/checks/:id/chat', seekerChatLimiter, async (req, res) => {
+  assertObjectId(req.params.id, 'CV check');
+  const { message } = validate(z.object({ message: z.string().trim().min(1, 'Type a question').max(2000) }), req.body ?? {});
+  if (!req.seeker.premiumAt) throw new HttpError(403, 'Upgrade to chat about your CV');
+  if (!aiEnabled()) throw new HttpError(400, 'AI isn’t set up on this server, so chat is not available');
+  const check = await SeekerCheck.findOne({ _id: req.params.id, seeker: req.seeker._id }).select('+cvText');
+  if (!check) throw new HttpError(404, 'CV check not found');
+  if (isPending(check)) throw new HttpError(409, 'Your CV is still being scored');
+  const chat = await askAboutCv(check, { text: check.cvText, job: null, message });
+  res.json({ chat });
+});
+
+router.delete('/checks/:id/chat', async (req, res) => {
+  assertObjectId(req.params.id, 'CV check');
+  const r = await SeekerCheck.updateOne({ _id: req.params.id, seeker: req.seeker._id }, { $set: { chat: [] } });
+  if (!r.matchedCount) throw new HttpError(404, 'CV check not found');
+  res.json({ chat: [] });
 });
 
 router.get('/applications', async (req, res) => {

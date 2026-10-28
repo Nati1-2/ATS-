@@ -33,7 +33,7 @@ Applicant applies ──► CV text extracted (PDF, DOCX, DOC, ODT, RTF, TXT; AI
 | **AI fit filter and sort** | Filter candidates by minimum AI fit and sort by best AI fit, next to the rule-based match %, CV keyword search and screening filters | `/candidates` |
 | **AI hiring assistant** | A chat that answers "Who are the best candidates for Frontend?" or "Who's been waiting longest?" from live data, with links to profiles. It uses tool calls to look data up | **Ask AI** on every page, `/assistant` |
 | **AI reports** | A hiring report for one job or all jobs. The numbers come from the database, and the AI writes the headline, what's going well, risks and next steps | `/reports` |
-| **AI CV checker** | Scores any CV (impact, clarity, structure, skills, ATS readability), with rewrites of weak lines and the keywords it's missing for a job | `/cv-checker` |
+| **AI CV checker** | Gives any CV an ATS score (requirements, keywords, parseability, content and AI writing quality), ranks what to fix first by points gained, rewrites weak lines, and answers follow-up questions in a chat | `/cv-checker` |
 | **CV check for job seekers** | Job seekers upload a CV and sign up to see its score and their applications; the full report unlocks after a Payoneer payment an admin approves | `/check-cv`, `/my` |
 
 Without AI, a fast rule-based engine filters every applicant:

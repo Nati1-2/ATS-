@@ -242,6 +242,7 @@ const cvCheckSchema = new Schema(
     targetRole: String,
     quick: { type: Schema.Types.Mixed, required: true }, // rule-based checks
     review: { type: Schema.Types.Mixed }, // AI review (missing when AI is off or failed)
+    ats: { type: Schema.Types.Mixed }, // ATS rating (utils/atsScore.js rateCv): the score shown
     aiStatus: { type: String, enum: ['pending', 'done', 'failed', 'disabled'], required: true },
     aiError: String,
     model: String,
@@ -257,6 +258,8 @@ const cvCheckSchema = new Schema(
       model: String,
       startedAt: Date,
     },
+    // Follow-up questions about the report (utils/cvChat.js)
+    chat: [{ _id: false, role: { type: String, enum: ['user', 'assistant'] }, content: String, at: Date }],
   },
   { timestamps: true }
 );
@@ -283,6 +286,7 @@ const seekerCheckSchema = new Schema(
     targetRole: String,
     quick: { type: Schema.Types.Mixed, required: true },
     review: { type: Schema.Types.Mixed },
+    ats: { type: Schema.Types.Mixed }, // ATS rating (utils/atsScore.js rateCv): the score shown
     // 'pending' while the AI review runs in the background after the upload returns
     aiStatus: { type: String, enum: ['pending', 'done', 'failed', 'disabled'], required: true },
     aiError: String,
@@ -299,6 +303,8 @@ const seekerCheckSchema = new Schema(
       model: String,
       startedAt: Date,
     },
+    // Follow-up questions about the report (utils/cvChat.js)
+    chat: [{ _id: false, role: { type: String, enum: ['user', 'assistant'] }, content: String, at: Date }],
   },
   { timestamps: true }
 );

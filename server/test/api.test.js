@@ -496,6 +496,25 @@ test('CV checker: replies at once with quick checks, the AI review (fake AI) fol
     }
     assert.equal(done.aiStatus, 'done');
     assert.equal(done.review.overallScore, 64);
+    assert.ok(done.ats.components.some((c) => c.key === 'requirements'), 'rated against the job like an ATS');
+    assert.ok(done.ats.components.some((c) => c.key === 'quality' && c.score === 60));
+    assert.equal(done.ats.components.reduce((t, c) => t + c.weight, 0), 100);
+    assert.ok(done.ats.improvements.every((i) => i.problem && i.fix && i.gain >= 1));
+
+    // Chat about the report: the AI gets the CV and the ATS report, and the conversation is saved
+    let asked;
+    setGenerateForTests(async (req) => ((asked = req), { text: 'Add **Kubernetes** if you have used it.' }));
+    assert.equal((await rec('POST', `/cv-checker/${r.body.check._id}/chat`, { message: '' })).status, 400);
+    const chat = await rec('POST', `/cv-checker/${r.body.check._id}/chat`, { message: 'Why is my score low?' });
+    assert.equal(chat.status, 200, JSON.stringify(chat.body));
+    assert.equal(chat.body.chat[1].content, 'Add **Kubernetes** if you have used it.');
+    const context = asked.contents[0].parts[0].text;
+    assert.match(context, /REPORT \(JSON\)/);
+    assert.match(context, /Node\.js and MongoDB APIs/, 'the CV text is part of the context');
+    assert.equal(asked.contents.at(-1).parts[0].text, 'Why is my score low?');
+    assert.equal((await rec('GET', `/cv-checker/${r.body.check._id}`)).body.check.chat.length, 2);
+    assert.equal((await hm('POST', `/cv-checker/${r.body.check._id}/chat`, { message: 'Hi' })).status, 404);
+    assert.deepEqual((await rec('DELETE', `/cv-checker/${r.body.check._id}/chat`)).body.chat, []);
     const uploads = () => fs.readdirSync(path.join(process.env.UPLOAD_DIR, 'resumes')).length;
     for (let i = 0; i < 20 && uploads() !== before; i++) await new Promise((res) => setTimeout(res, 50)); // deleted after the review
     assert.equal(uploads(), before);
@@ -604,8 +623,11 @@ test('job seeker: CV checked before sign-up is claimed; only the score shows unt
     await new Promise((r) => setTimeout(r, 100));
   }
   assert.equal(list.body.checks.length, 1);
-  assert.equal(list.body.checks[0].score, 58);
+  const stored = await SeekerCheck.findById(checked.body.id).lean();
+  assert.equal(list.body.checks[0].score, stored.ats.score, 'the score shown is the ATS score');
+  assert.ok(stored.ats.components.some((c) => c.key === 'quality' && c.score === 55), 'the AI review adds its writing-quality score');
   assert.equal(list.body.checks[0].locked, true);
+  assert.equal((await seeker('POST', `/seeker/checks/${checked.body.id}/chat`, { message: 'Why?' })).status, 403, 'chat is part of the upgrade');
   const locked = await seeker('GET', `/seeker/checks/${checked.body.id}`);
   assert.equal(locked.body.check.review, undefined, 'the full review must not be sent before the upgrade');
   assert.equal(locked.body.check.quick, undefined);
@@ -656,6 +678,13 @@ test('job seeker: CV checked before sign-up is claimed; only the score shows unt
   const full = await seeker('GET', `/seeker/checks/${checked.body.id}`);
   assert.equal(full.body.check.locked, false);
   assert.equal(full.body.check.review.suggestions[0].suggestion, 'Quantify results');
+  assert.ok(full.body.check.ats.improvements.length > 0, 'the ranked ATS fixes are in the full report');
+  assert.equal(full.body.check.cvText, undefined, 'the CV text is never sent back');
+  const asked = await withFakeAi(async () => ({ text: 'Add numbers to your Node.js bullet.' }), () => seeker('POST', `/seeker/checks/${checked.body.id}/chat`, { message: 'How do I raise my score?' }));
+  assert.equal(asked.status, 200, JSON.stringify(asked.body));
+  assert.deepEqual(asked.body.chat.map((m) => m.role), ['user', 'assistant']);
+  assert.equal((await seeker('GET', `/seeker/checks/${checked.body.id}`)).body.check.chat.length, 2, 'the conversation is saved');
+  assert.deepEqual((await seeker('DELETE', `/seeker/checks/${checked.body.id}/chat`)).body.chat, []);
   assert.equal((await seeker('POST', '/seeker/payment', { payerName: 'Hana Bekele', payerEmail: 'hana@t.test', reference: 'PYN-2' })).status, 409);
 
   // Sign out and back in
@@ -692,7 +721,8 @@ test('job seeker: the upload returns before the AI review, and the score stays h
   });
   const done = (await seeker('GET', '/seeker/checks')).body.checks[0];
   assert.equal(done.pending, false);
-  assert.equal(done.score, 71);
+  const { SeekerCheck } = await import('../src/models/index.js');
+  assert.equal(done.score, (await SeekerCheck.findById(done._id).lean()).ats.score);
 });
 
 test('ATS CV Filter: admins filter CVs by rule-based ATS checks only; others are refused', opts, async () => {

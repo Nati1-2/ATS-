@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, Lock } from 'lucide-react';
 import { useApi } from '@/lib/api';
 import CvReport, { ScoreRing } from '@/components/CvReport';
+import CvChat from '@/components/CvChat';
 import { Card, ErrorState, LoadingState, Spinner } from '@/components/ui';
 import { UpgradeButton } from '../../PaymentStatus';
 
@@ -39,12 +40,15 @@ export default function SeekerCheckPage({ params }) {
           <ScoreRing score={check.score} label="CV score" />
           <p className="font-medium text-slate-900">{check.fileName || 'Your CV'}</p>
           <p className="flex max-w-md items-center gap-1.5 text-sm text-slate-600">
-            <Lock className="h-4 w-4 shrink-0" aria-hidden /> Upgrade to see what to fix, rewrites of your weak lines and missing keywords.
+            <Lock className="h-4 w-4 shrink-0" aria-hidden /> Upgrade to see what to fix, rewrites of your weak lines and missing keywords, and to chat with AI about your CV.
           </p>
           <UpgradeButton info={payment} size="md" />
         </Card>
       ) : (
-        <CvReport check={check} />
+        <>
+          <CvReport check={check} />
+          <CvChat key={check._id} check={check} endpoint={`/seeker/checks/${check._id}/chat`} />
+        </>
       )}
     </div>
   );

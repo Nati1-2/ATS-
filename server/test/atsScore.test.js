@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rateCv, jobKeywords } from '../src/utils/atsScore.js';
+import { rateCv, jobKeywords, aiQualityOf } from '../src/utils/atsScore.js';
 
 const JOB = {
   title: 'Frontend Developer',
@@ -81,4 +81,29 @@ test('weaknesses are ranked knockouts first, then by points, each with a fix', (
   assert.ok(r.improvements.some((i) => i.id === 'contact'));
   assert.ok(r.improvements.some((i) => i.id === 'jobKeywords'));
   assert.equal(rateCv('', JOB).improvements[0].id, 'readable');
+});
+
+test('without a job, role keywords from the AI are matched word for word and missing ones are a fix', () => {
+  const r = rateCv(STRONG, null, { roleKeywords: ['React', 'TypeScript', 'Redux', 'Webpack'] });
+  const k = r.components.find((c) => c.key === 'keywords');
+  assert.equal(k.score, 50);
+  assert.deepEqual(r.keywords, { source: 'role', found: ['react', 'typescript'], missing: ['redux', 'webpack'] });
+  assert.ok(r.improvements.some((i) => i.id === 'jobKeywords' && /for this role/.test(i.problem)));
+  assert.equal(r.components.reduce((t, c) => t + c.weight, 0), 100);
+});
+
+test('the AI writing-quality score counts for 30%, and a knockout still caps the total', () => {
+  const rules = rateCv(STRONG, null);
+  const withAi = rateCv(STRONG, null, { aiQuality: 40 });
+  assert.equal(withAi.components.find((c) => c.key === 'quality').weight, 30);
+  assert.equal(withAi.score, Math.round(rules.score * 0.7 + 40 * 0.3));
+  const knockout = rateCv(STRONG, { ...JOB, mustHaveSkills: ['Rust'] }, { aiQuality: 100 });
+  assert.ok(knockout.score <= 65);
+  assert.equal(knockout.decision, 'reject');
+});
+
+test('AI quality: mean of impact, clarity and skills; none for an unreadable review', () => {
+  assert.equal(aiQualityOf({ readable: true, scores: { impact: { score: 50 }, clarity: { score: 70 }, skills: { score: 90 }, structure: { score: 0 } } }), 70);
+  assert.equal(aiQualityOf({ readable: false, scores: {} }), null);
+  assert.equal(aiQualityOf(null), null);
 });

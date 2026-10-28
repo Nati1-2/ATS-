@@ -6,7 +6,10 @@
  * - Job description keywords (15%): the terms the job ad repeats most, found word-for-word in the CV
  * - Parseability (25%): can a parser read the file, find contact details, standard headings and dates
  * - Content (15%): measurable results, action verbs, summary, skimmable bullets
- * Without a job only parseability (60%) and content (40%) are rated.
+ * Without a job only parseability (60%) and content (40%) are rated, plus (when the AI review has suggested them)
+ * the keywords an ATS would search for in the target role, matched word-for-word like the job ad's.
+ * After the AI review, its writing-quality score (impact, clarity, skills) counts for 30% (AI_SHARE): rules can't
+ * judge how convincing a bullet is, and the AI alone is not consistent enough to be the whole score.
  *
  * Knockouts work like ATS screening filters: an unreadable CV scores 0 and a missing must-have skill caps the score.
  * Each CV gets an ATS decision (pass / review / reject) and a ranked list of weaknesses with how to fix them.
@@ -17,8 +20,10 @@ import { scoreApplication } from './scoring.js';
 
 const WEIGHTS_WITH_JOB = { requirements: 45, keywords: 15, parse: 25, content: 15 };
 const WEIGHTS_NO_JOB = { parse: 60, content: 40 };
+const WEIGHTS_ROLE = { keywords: 25, parse: 45, content: 30 };
 const MISSING_MUST_HAVE_CAP = 65;
 const KEYWORD_COUNT = 20;
+const AI_SHARE = 0.3;
 
 export const ATS_GRADES = [
   { min: 80, label: 'Strong match' },
@@ -94,6 +99,13 @@ const FIXES = {
 };
 const AREA = { parse: 'Parseability', content: 'Content' };
 
+/** The AI review's writing-quality score (0-100), or null when there is no usable review. */
+export function aiQualityOf(review) {
+  if (!review || review.readable === false || !review.scores) return null;
+  const parts = ['impact', 'clarity', 'skills'].map((k) => review.scores[k]?.score).filter((n) => Number.isFinite(n));
+  return parts.length ? Math.round(parts.reduce((t, n) => t + n, 0) / parts.length) : null;
+}
+
 /** Weaknesses ranked by how many points fixing them would add (knockouts first). */
 function findImprovements({ checks, components, match, keywords, job, knockouts, status }) {
   const list = [];
@@ -147,7 +159,7 @@ function findImprovements({ checks, components, match, keywords, job, knockouts,
       id: 'jobKeywords',
       area: 'Keywords',
       severity: keywords.missing.length > n / 2 ? 'high' : 'medium',
-      problem: `${keywords.missing.length} of ${n} top keywords from the job ad are missing: ${keywords.missing.join(', ')}.`,
+      problem: `${keywords.missing.length} of ${n} top keywords ${keywords.source === 'role' ? 'for this role' : 'from the job ad'} are missing: ${keywords.missing.join(', ')}.`,
       fix: 'Use these exact words where they truly apply. ATSs match words literally, so "REST APIs" and "APIs" count as different terms.',
       gain: (weightOf('keywords') / total) * (keywords.missing.length / n) * 100,
     });
@@ -160,10 +172,11 @@ function findImprovements({ checks, components, match, keywords, job, knockouts,
 }
 
 /**
- * Rate a CV. `fileName` (optional) lets the file format count. Returns
- * { score, grade, decision, components: [{ key, label, weight, score, detail }], knockouts, improvements, checks, keywords?, jobMatch? }.
+ * Rate a CV. `fileName` (optional) lets the file format count. Without a job, `roleKeywords` (from the AI review)
+ * are matched like a job ad's keywords; `aiQuality` (aiQualityOf) adds the AI's writing-quality score. Returns
+ * { score, grade, decision, components: [{ key, label, weight (% of the score), score, detail }], knockouts, improvements, checks, keywords?, jobMatch? }.
  */
-export function rateCv(text, job = null, { fileName } = {}) {
+export function rateCv(text, job = null, { fileName, roleKeywords, aiQuality = null } = {}) {
   const quick = quickChecks(text, job);
   const checks = [...quick.checks];
   const status = (id) => checks.find((c) => c.id === id)?.status ?? 'pass';
@@ -196,19 +209,36 @@ export function rateCv(text, job = null, { fileName } = {}) {
     if (match) components.unshift({ key: 'requirements', label: 'Requirements match', score: match.score, detail: match.components.map((c) => `${c.label}: ${c.detail}`).join(' · ') });
     if (terms.length) {
       const found = terms.filter((t) => has(text, t));
-      keywords = { found, missing: terms.filter((t) => !found.includes(t)) };
+      keywords = { source: 'job', found, missing: terms.filter((t) => !found.includes(t)) };
       components.splice(match ? 1 : 0, 0, { key: 'keywords', label: 'Job description keywords', score: Math.round((found.length / terms.length) * 100), detail: `${found.length} of ${terms.length} top keywords from the job ad found` });
     }
     if (match?.missingMustHave.length) knockouts.push(`Missing required skills: ${match.missingMustHave.join(', ')}`);
+  } else if (roleKeywords?.length) {
+    const terms = [...new Set(roleKeywords.map((t) => String(t).trim().toLowerCase()).filter(Boolean))].slice(0, KEYWORD_COUNT);
+    const found = terms.filter((t) => has(text, t));
+    keywords = { source: 'role', found, missing: terms.filter((t) => !found.includes(t)) };
+    components.unshift({ key: 'keywords', label: 'Role keywords', score: Math.round((found.length / terms.length) * 100), detail: `${found.length} of ${terms.length} keywords an ATS would search for in this role found` });
   }
 
-  const weights = components.some((c) => c.key === 'requirements' || c.key === 'keywords') ? WEIGHTS_WITH_JOB : WEIGHTS_NO_JOB;
+  const weights = job ? WEIGHTS_WITH_JOB : keywords ? WEIGHTS_ROLE : WEIGHTS_NO_JOB;
   for (const c of components) c.weight = weights[c.key];
+  if (aiQuality != null) {
+    const ruleWeight = components.reduce((t, c) => t + c.weight, 0);
+    components.push({ key: 'quality', label: 'Writing quality (AI review)', score: aiQuality, weight: (ruleWeight * AI_SHARE) / (1 - AI_SHARE), detail: 'How convincing the impact, clarity and skills evidence read to a recruiter' });
+  }
   const totalWeight = components.reduce((t, c) => t + c.weight, 0);
   let score = Math.round(components.reduce((t, c) => t + c.weight * c.score, 0) / totalWeight);
   if (knockouts.length) score = Math.min(score, MISSING_MUST_HAVE_CAP);
 
   const improvements = findImprovements({ checks, components, match, keywords, job, knockouts, status });
-  for (const c of components) delete c.subWeights;
+  // Shown as whole percentages that add up to 100 (largest remainder)
+  const shares = components.map((c) => (c.weight / totalWeight) * 100);
+  const whole = shares.map(Math.floor);
+  const order = shares.map((v, i) => [v - whole[i], i]).sort((a, b) => b[0] - a[0]);
+  for (let k = 0; k < 100 - whole.reduce((t, n) => t + n, 0); k++) whole[order[k][1]] += 1;
+  components.forEach((c, i) => {
+    delete c.subWeights;
+    c.weight = whole[i];
+  });
   return { score, grade: atsGrade(score), decision: decide(score, knockouts), components, knockouts, improvements, checks, keywords, jobMatch: quick.jobMatch };
 }

@@ -8,6 +8,7 @@ import { api, useApi } from '@/lib/api';
 import { formatBytes, relativeTime, RESUME_FORMATS } from '@/lib/constants';
 import CvReport, { tone } from '@/components/CvReport';
 import CvFix from '@/components/CvFix';
+import CvChat from '@/components/CvChat';
 import { Alert, Button, Card, ConfirmDialog, cx, EmptyState, inputClass, LoadingState, PageHeader, TextArea, TextInput, useToast } from '@/components/ui';
 
 function CheckForm({ applicationId, presetJob, onDone }) {
@@ -151,7 +152,7 @@ function History({ checks, activeId }) {
       <h2 className="border-b border-slate-200 px-5 py-3 text-sm font-semibold">Your recent checks</h2>
       <ul className="max-h-96 divide-y divide-slate-100 overflow-y-auto">
         {checks.map((c) => {
-          const score = c.review?.overallScore ?? c.quick?.score;
+          const score = c.ats?.score ?? c.review?.overallScore ?? c.quick?.score;
           return (
             <li key={c._id}>
               <Link href={`/cv-checker?id=${c._id}`} aria-current={c._id === activeId ? 'true' : undefined} className={cx('flex items-center gap-3 px-5 py-3 text-sm hover:bg-slate-50', c._id === activeId && 'bg-violet-50/60')}>
@@ -214,7 +215,7 @@ function CvChecker() {
 
   return (
     <>
-      <PageHeader title="CV checker" description="Get a score, strengths, weaknesses and specific fixes for any CV, compared with one of your jobs or reviewed in general." />
+      <PageHeader title="CV checker" description="Get an ATS score, what to fix first, strengths, weaknesses and rewrites for any CV, then ask follow-up questions about the report." />
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="space-y-6">
           <CheckForm
@@ -244,6 +245,7 @@ function CvChecker() {
             check && (
               <div className="space-y-6">
                 <CvReport check={check} onDelete={() => setConfirmDelete(true)} />
+                <CvChat key={check._id} check={check} endpoint={`/cv-checker/${check._id}/chat`} />
                 <CvFix check={check} onChange={(c) => current.setData({ check: c })} />
               </div>
             )
