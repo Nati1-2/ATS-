@@ -94,6 +94,7 @@ export default function CvReport({ check, onDelete }) {
               {ats && check.jobTitle && <Badge className={DECISION[ats.decision][1]}>{DECISION[ats.decision][0]}</Badge>}
               {!ats && rv && <Badge className="bg-slate-100 text-slate-700 ring-slate-300">Quick checks {q.score}%</Badge>}
             </div>
+            {ats && check.jobTitle && ats.decision === 'review' && ats.holds?.length > 0 && <p className="mt-2 text-xs font-medium text-amber-700">Not passed automatically: {ats.holds.join(' · ')}</p>}
           </div>
           <div className="flex gap-2 print:hidden sm:flex-col">
             <Button size="sm" variant="secondary" onClick={() => window.print()}>

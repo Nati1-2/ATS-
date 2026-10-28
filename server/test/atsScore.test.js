@@ -123,12 +123,20 @@ test('job keywords: word forms merged, listed skills and their fragments left ou
   assert.ok(k.includes('sql queries') && k.includes('dashboards'));
   assert.equal(k.filter((t) => /^stakeholders?$/.test(t)).length, 1);
   for (const t of ['power', 'sql', 'need']) assert.ok(!k.includes(t), t);
+  assert.ok(!k.includes('insights'), 'a word the ad says once is not a keyword');
+});
+
+test('job keywords: a short ad gives too few terms to score, and "front-end" is one word', () => {
+  const job = { title: 'Backend Engineer', mustHaveSkills: ['Node.js'], description: 'Own services end to end, from design through production monitoring for thousands of fleets.' };
+  assert.deepEqual(jobKeywords(job), ['backend', 'engineer']);
+  assert.ok(!rateCv(STRONG, job).components.some((c) => c.key === 'keywords'));
+  assert.ok(jobKeywords({ title: 'Front-end Developer', description: 'Front-end work.' }).includes('frontend'));
 });
 
 test('keywords match other forms of the same word, as in a real ATS, but not other words', () => {
-  const cv = 'Experience\n- Wrote a SQL query library and analyzed sales data\n- Shared an insight report with each stakeholder';
+  const cv = 'Experience\n- Wrote a SQL query library and built a dashboard for each stakeholder';
   const r = rateCv(cv, ANALYST);
-  for (const t of ['sql queries', 'analyze', 'insights', 'stakeholder', 'reports']) assert.ok(r.keywords.found.includes(t), t);
+  for (const t of ['sql queries', 'dashboards', 'stakeholder']) assert.ok(r.keywords.found.includes(t), t);
   assert.ok(r.keywords.missing.includes('data visualization'));
   assert.equal(stem('planned'), stem('planning'));
   assert.equal(stem('organisation'), stem('organize'));
@@ -158,4 +166,58 @@ test('the shown weights always add up to 100', () => {
   for (const aiQuality of [null, 60]) {
     for (const j of [null, job]) assert.equal(rateCv(STRONG, j, { aiQuality }).components.reduce((t, c) => t + c.weight, 0), 100);
   }
+});
+
+const POOR = `Sara
+sara123@gmail.com
+Objective
+I am a hard working person looking for a job in a good company where I can grow.
+Experience
+Worked at a shop. Responsible for various tasks such as helping customers and cleaning etc.
+Helped with the computer stuff sometimes.
+Education
+Grade 12
+Skills
+MS Office, communication`;
+
+test('calibration: a very poor CV is rejected by the rules alone, a strong one passes', () => {
+  const poor = rateCv(POOR, null, { fileName: 'cv.docx' });
+  assert.ok(poor.score < 50, `poor ${poor.score}`);
+  assert.equal(poor.decision, 'reject');
+  for (const id of ['length', 'dates', 'depth', 'verbs', 'impact']) assert.equal(poor.checks.find((c) => c.id === id).status, 'fail', id);
+  const strong = rateCv(STRONG, null, { fileName: 'cv.docx' });
+  assert.ok(strong.score >= 80, `strong ${strong.score}`);
+});
+
+test('role keywords: only the AI\'s top 10 count, and known synonyms match', () => {
+  const kw = ['React', 'TypeScript', 'REST API', 'JavaScript', 'Jest', 'GraphQL', 'Git', 'Next.js', 'CSS', 'HTML', 'Webpack', 'Redux'];
+  const r = rateCv(`${STRONG}\nUsed JS and RESTful services daily`, null, { roleKeywords: kw });
+  assert.equal(r.keywords.found.length + r.keywords.missing.length, 10);
+  assert.ok(r.keywords.found.includes('rest api') && r.keywords.found.includes('javascript'));
+});
+
+test('a high-scoring stub CV is held for review, with the reason', () => {
+  const stub = 'Yonas\nyonas@mail.com\nSummary\nBackend engineer.\nExperience\nBackend Engineer, Acme (Jan 2019 - Present)\nWork with Node.js, MongoDB, REST.\nEducation\nBSc Computer Engineering\nSkills\nNode.js, MongoDB, REST';
+  const r = rateCv(stub, { title: 'Backend Engineer', mustHaveSkills: ['Node.js', 'MongoDB', 'REST'], minYearsExperience: 3 }, { fileName: 'cv.pdf' });
+  assert.ok(r.score >= 75, `score ${r.score}`);
+  assert.equal(r.decision, 'review');
+  assert.match(r.holds[0], /Too little detail/);
+  assert.deepEqual(rateCv(STRONG, JOB, { fileName: 'cv.docx' }).holds, []);
+});
+
+test('real-world parsing: BA / BBA / LLB degrees, accounting and customer-service synonyms', () => {
+  const acc = { title: 'Accountant', mustHaveSkills: ['Financial reporting', 'Customer service'], minEducation: 'bachelor' };
+  const r = rateCv('Experience\nAccountant (Jan 2020 - Present)\n- Prepared monthly profit and loss statements\n- Served customers at the front desk, about 50 a day\nEducation\nBA Accounting and Finance', acc);
+  assert.deepEqual(r.jobMatch.missingMustHave, []);
+  assert.ok(!r.holds.some((h) => /education/.test(h)), r.holds.join());
+});
+
+test('a long skills list with nothing about the work is a knockout; below the minimum years is held for review', () => {
+  const skills = Array.from({ length: 30 }, (_, i) => `Skill${i}`).join(', ');
+  const stuffed = rateCv(`Yared\nyared@mail.com\nSkills\nSQL, Excel, ${skills}\nExperience\nData analyst`, { title: 'Data Analyst', mustHaveSkills: ['SQL', 'Excel'] });
+  assert.equal(stuffed.decision, 'reject');
+  assert.match(stuffed.knockouts.join(), /without evidence of the work/);
+  const junior = rateCv(STRONG, { ...JOB, minYearsExperience: 12 }, { fileName: 'cv.docx' });
+  assert.equal(junior.decision, 'review');
+  assert.match(junior.holds.join(), /Below the required experience/);
 });

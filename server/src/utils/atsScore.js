@@ -21,11 +21,18 @@ import { TOKEN, segments, stem, stemIndex, hasTerm } from './keywords.js';
 
 export { stem };
 
+// Known synonyms count, as in an ATS's skills taxonomy: "REST" for "REST API", "JS" for "JavaScript"
+const hasKeyword = (index, term) => [term, ...skillAliases(String(term))].some((t) => hasTerm(index, t));
+
 const WEIGHTS_WITH_JOB = { requirements: 45, keywords: 15, parse: 25, content: 15 };
 const WEIGHTS_NO_JOB = { parse: 60, content: 40 };
 const WEIGHTS_ROLE = { keywords: 25, parse: 45, content: 30 };
 const MISSING_MUST_HAVE_CAP = 65;
 const KEYWORD_COUNT = 20;
+// Fewer terms than this say more about how short the ad is than about the CV, so the keyword score is left out
+const MIN_KEYWORDS = 3;
+// The AI lists role keywords most important first; past the top 10 they are extras few job ads ask for
+const ROLE_KEYWORD_COUNT = 10;
 const AI_SHARE = 0.3;
 
 export const ATS_GRADES = [
@@ -37,7 +44,7 @@ export const ATS_GRADES = [
 
 // Sub-weights inside each rule-based category. quickChecks only reports some checks when they fail, so absent = pass.
 const PARSE = { contact: 30, sections: 30, dates: 20, length: 10, format: 10 };
-const CONTENT = { impact: 40, verbs: 25, summary: 15, bullets: 10, pronouns: 5, personal: 5 };
+const CONTENT = { impact: 35, depth: 20, verbs: 20, summary: 10, bullets: 5, pronouns: 5, personal: 5 };
 const POINTS = { pass: 1, warn: 0.5, fail: 0 };
 
 // Files ATS parsers read reliably, best first
@@ -46,11 +53,11 @@ const FORMATS = { '.docx': 'pass', '.pdf': 'pass', '.doc': 'warn', '.odt': 'warn
 const SYMBOLS = /[─-➿⬀-⯿\u{1F000}-\u{1FAFF}-]/gu;
 
 const STOP = new Set(`a about above across after again against all also am an and any are as at be because been before being below between both but by can could did do does doing down during each either etc few for from further had has have having he her here hers him his how i if in into is it its itself just may me might more most must my no nor not now of off on once only or other our ours out over own per please same shall she should so some such than that the their theirs them then there these they this those through to too under until up upon us very via was we were what when where which while who whom why will with within without would yet you your yours
-ability able access build building built write writing use used matter plus across activities additional apply applicant applicants based benefits best candidate candidates closely company competitive create culture daily day degree demonstrated description desired environment equal excellent experience experienced expected focus following fast full good great growth help highly hire hiring ideal include including job join key knowledge least level looking make new offer opportunity opportunities paced plus position preferred proven related required requirement requirements responsibilities responsible role salary skills solid strong successful support team teams time understanding using well work working world year years need needs seeking ideally want ensure other minimum`.split(/\s+/));
+ability able access build building built write writing use used matter plus across activities additional apply applicant applicants based benefits best candidate candidates closely company competitive create culture daily day degree demonstrated description desired environment equal excellent experience experienced expected focus following fast full good great growth help highly hire hiring ideal include including job join key knowledge least level looking make new offer opportunity opportunities paced plus position preferred proven related required requirement requirements responsibilities responsible role salary skills solid strong successful support team teams time understanding using well work working world year years need needs seeking ideally want ensure other minimum end`.split(/\s+/));
 
 /**
- * The terms a job ad repeats most (repeated two-word phrases, then single words), like the keyword list of a
- * resume scanner. Word forms are merged ("dashboard" / "dashboards"). Skills the job lists are already rated
+ * The terms a job ad repeats most (repeated two-word phrases, then repeated words and the words of the job title),
+ * like the keyword list of a resume scanner. A word said once is too often filler ("delightful", "thousands"). Word forms are merged ("dashboard" / "dashboards"). Skills the job lists are already rated
  * in the requirements match, so neither they nor their fragments ("power" of "Power BI") are repeated here.
  */
 export function jobKeywords(job, limit = KEYWORD_COUNT) {
@@ -79,7 +86,8 @@ export function jobKeywords(job, limit = KEYWORD_COUNT) {
   const isSkill = (key) => key.split(' ').every((w) => skip.has(w));
   const picked = byCount(phrases).filter(([key, e]) => e.n >= 2 && !isSkill(key));
   const inPhrase = new Set(picked.flatMap(([key]) => key.split(' ')));
-  const single = byCount(words).filter(([key]) => !inPhrase.has(key));
+  const inTitle = new Set((segments(job.title).join(' ').match(TOKEN) || []).map(stem));
+  const single = byCount(words).filter(([key, e]) => !inPhrase.has(key) && (e.n >= 2 || inTitle.has(key)));
   return [...picked, ...single].map(([, e]) => form(e)).slice(0, limit);
 }
 
@@ -105,6 +113,7 @@ const FIXES = {
   format: 'Save the CV as DOCX or a text-based PDF (exported from Word or Google Docs, not scanned).',
   symbols: 'Use a simple one-column layout without icons, tables, text boxes or graphics.',
   impact: 'Rewrite at least 3 bullets to show a result with a number, e.g. "Reduced costs by 20%" or "Served 10,000 users".',
+  depth: 'Describe each role in 3–5 bullets: what you did, the tools you used and the result, e.g. "Built X in Y, cutting Z by 30%".',
   verbs: 'Start each bullet with an action verb (Led, Built, Reduced, Launched) instead of "responsible for" or "helped with".',
   summary: 'Add a 2–3 line summary at the top with your target job title, years of experience and top skills.',
   bullets: 'Split long paragraphs into bullet points of one or two lines.',
@@ -188,11 +197,13 @@ function findImprovements({ checks, components, match, keywords, job, knockouts,
 
 /**
  * Rate a CV. `fileName` (optional) lets the file format count. Without a job, `roleKeywords` (from the AI review)
- * are matched like a job ad's keywords; `aiQuality` (aiQualityOf) adds the AI's writing-quality score. Returns
- * { score, grade, decision, components: [{ key, label, weight (% of the score), score, detail }], knockouts, improvements, checks, keywords?, jobMatch? }.
+ * are matched like a job ad's keywords; `aiQuality` (aiQualityOf) adds the AI's writing-quality score; `now` dates "Present" (tests). Returns
+ * { score, grade, decision, components: [{ key, label, weight (% of the score), score, detail }], knockouts, holds (why it
+ * cannot pass automatically), improvements, checks, keywords?, jobMatch? }.
  */
-export function rateCv(text, job = null, { fileName, roleKeywords, aiQuality: aiScore = null } = {}) {
-  const quick = quickChecks(text, job);
+export function rateCv(text, job = null, { fileName, roleKeywords, aiQuality: aiScore = null, now = new Date() } = {}) {
+  const match = job && String(text || '').trim() ? scoreApplication(job, { resumeText: text }, now) : null;
+  const quick = quickChecks(text, job, { match });
   const checks = [...quick.checks];
   const status = (id) => checks.find((c) => c.id === id)?.status ?? 'pass';
   // Hidden instructions may have swayed the AI, so its score is left out, and the CV always goes to a person
@@ -215,27 +226,27 @@ export function rateCv(text, job = null, { fileName, roleKeywords, aiQuality: ai
   const parseWeights = { ...PARSE, ...(symbols > 5 ? { symbols: 5 } : {}) };
   const components = [
     { key: 'parse', label: 'Parseability', score: weighted(parseWeights, status), subWeights: parseWeights, detail: 'Contact details, standard headings, dates, length and file format' },
-    { key: 'content', label: 'Content', score: weighted(CONTENT, status), detail: 'Measurable results, action verbs, summary and skimmable bullets' },
+    { key: 'content', label: 'Content', score: weighted(CONTENT, status), detail: 'Measurable results, detail about the work, action verbs, summary and skimmable bullets' },
   ];
   const knockouts = [];
   let keywords;
-  let match = null;
 
   if (job) {
-    match = scoreApplication(job, { resumeText: text });
     const terms = jobKeywords(job);
     if (match) components.unshift({ key: 'requirements', label: 'Requirements match', score: match.score, detail: match.components.map((c) => `${c.label}: ${c.detail}`).join(' · ') });
-    if (terms.length) {
+    if (terms.length >= MIN_KEYWORDS) {
       const index = stemIndex(text);
-      const found = terms.filter((t) => hasTerm(index, t));
+      const found = terms.filter((t) => hasKeyword(index, t));
       keywords = { source: 'job', found, missing: terms.filter((t) => !found.includes(t)) };
       components.splice(match ? 1 : 0, 0, { key: 'keywords', label: 'Job description keywords', score: Math.round((found.length / terms.length) * 100), detail: `${found.length} of ${terms.length} top keywords from the job ad found` });
     }
     if (match?.missingMustHave.length) knockouts.push(`Missing required skills: ${match.missingMustHave.join(', ')}`);
+    // A long list of keywords with nothing about the work behind them is stuffing, not evidence
+    if (status('depth') === 'fail' && (match?.flags.length || (quick.stats.skillItems ?? 0) >= 25)) knockouts.push(`Keyword list without evidence of the work (${quick.stats.skillItems} skills listed, almost nothing about the work)`);
   } else if (roleKeywords?.length) {
-    const terms = [...new Set(roleKeywords.map((t) => String(t).trim().toLowerCase()).filter(Boolean))].slice(0, KEYWORD_COUNT);
+    const terms = [...new Set(roleKeywords.map((t) => String(t).trim().toLowerCase()).filter(Boolean))].slice(0, ROLE_KEYWORD_COUNT);
     const index = stemIndex(text);
-    const found = terms.filter((t) => hasTerm(index, t));
+    const found = terms.filter((t) => hasKeyword(index, t));
     keywords = { source: 'role', found, missing: terms.filter((t) => !found.includes(t)) };
     components.unshift({ key: 'keywords', label: 'Role keywords', score: Math.round((found.length / terms.length) * 100), detail: `${found.length} of ${terms.length} keywords an ATS would search for in this role found` });
   }
@@ -255,8 +266,16 @@ export function rateCv(text, job = null, { fileName, roleKeywords, aiQuality: ai
     const c = checks.find((x) => x.id === 'injection');
     improvements.unshift({ id: 'injection', area: 'Honesty', severity: 'high', problem: `${c.detail} The CV cannot pass automatically.`, fix: FIXES.injection, gain: 1 });
   }
+  // Reasons a CV that scores well still goes to a person instead of passing automatically
+  const holds = [];
+  if (manipulated) holds.push('Contains text aimed at AI or screening systems');
+  if (status('depth') === 'fail') holds.push('Too little detail about the work to confirm the requirements');
+  // Minimum years and education are hard screens at most companies: a person decides on a CV below them
+  const below = (key) => match?.components.find((c) => c.key === key && c.score < 100);
+  if (below('experience')) holds.push(`Below the required experience: ${below('experience').detail}`);
+  if (below('education')) holds.push(`Below the required education: ${below('education').detail}`);
   let decision = decide(score, knockouts);
-  if (manipulated && decision === 'pass') decision = 'review';
+  if (holds.length && decision === 'pass') decision = 'review';
   // Shown as whole percentages that add up to 100 (largest remainder)
   const shares = components.map((c) => (c.weight / totalWeight) * 100);
   const whole = shares.map(Math.floor);
@@ -267,5 +286,5 @@ export function rateCv(text, job = null, { fileName, roleKeywords, aiQuality: ai
     delete c.subWeights;
     c.weight = whole[i];
   });
-  return { score, grade: atsGrade(score), decision, components, knockouts, improvements, checks, keywords, jobMatch: quick.jobMatch };
+  return { score, grade: atsGrade(score), decision, components, knockouts, holds, improvements, checks, keywords, jobMatch: quick.jobMatch };
 }

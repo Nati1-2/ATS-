@@ -4,7 +4,8 @@
  */
 export const TOKEN = /[a-z][a-z0-9+#.]*[a-z0-9+#]|[a-z]/g;
 // Phrases never cross a sentence or list boundary
-export const segments = (text) => String(text || '').toLowerCase().split(/[.,;:!?()[\]\n/•|]+/);
+// "Front-end" and "frontend" are one word, not "front" + "end"
+export const segments = (text) => String(text || '').toLowerCase().replace(/([a-z])-(?=[a-z])/g, '$1').split(/[.,;:!?()[\]\n/•|]+/);
 
 /**
  * Light stemming. Terms with symbols or digits ("node.js", "c++", "s3") are kept as they are.

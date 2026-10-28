@@ -27,7 +27,7 @@ try {
 }
 
 const { createApp } = await import('../src/app.js');
-const { User } = await import('../src/models/index.js');
+const { User, Job } = await import('../src/models/index.js');
 const { default: bcrypt } = await import('bcryptjs');
 
 let base;
@@ -745,6 +745,19 @@ test('ATS CV Filter: admins filter CVs by rule-based ATS checks only; others are
   for (const a of (await admin('GET', '/ats-cv-filter?result=reject')).body.applications) assert.equal(a.decision, 'reject');
   assert.ok(row.improvements.every((i) => i.problem && i.fix));
   for (const a of (await admin('GET', '/ats-cv-filter?mustPass=contact')).body.applications) assert.equal(a.checks.find((c) => c.id === 'contact').status, 'pass');
+
+  // Ratings are cached, but a changed job is re-rated at once
+  const rowJob = row.job._id;
+  const before = (await admin('GET', `/ats-cv-filter?job=${rowJob}`)).body.applications.find((a) => a._id === row._id);
+  assert.deepEqual(before, (await admin('GET', `/ats-cv-filter?job=${rowJob}`)).body.applications.find((a) => a._id === row._id));
+  const j = await Job.findById(rowJob);
+  const skills = j.mustHaveSkills;
+  j.mustHaveSkills = [...skills, 'Cobol'];
+  await j.save();
+  const after = (await admin('GET', `/ats-cv-filter?job=${rowJob}`)).body.applications.find((a) => a._id === row._id);
+  assert.match(after.knockouts.join(' '), /Cobol/);
+  j.mustHaveSkills = skills;
+  await j.save();
 });
 
 test('ATS CV Filter: an uploaded CV is checked with ATS rules only, even with AI switched on', opts, async () => {

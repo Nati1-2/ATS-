@@ -64,10 +64,11 @@ export function injectionIn(text) {
 const words = (s) => s.split(/\s+/).filter(Boolean).length;
 
 /**
- * Run fast, explainable checks on CV text. `job` (optional) adds a skills match.
+ * Run fast, explainable checks on CV text. `job` (optional) adds a skills match; pass `match` when the
+ * scoreApplication result is already known, so it is not worked out twice.
  * Returns { score, checks: [{ id, label, status: 'pass'|'warn'|'fail', detail }], stats, jobMatch? }.
  */
-export function quickChecks(text, job = null) {
+export function quickChecks(text, job = null, { match: known } = {}) {
   const checks = [];
   const add = (id, label, status, detail) => checks.push({ id, label, status, detail });
   const t = String(text || '');
@@ -79,8 +80,9 @@ export function quickChecks(text, job = null) {
 
   const { sections, structured } = splitSections(t);
   const n = words(t);
-  add('length', 'Length', n < 200 ? 'warn' : n > 1100 ? 'warn' : 'pass',
-    n < 200 ? `${n} words is very short. Add detail about what you did and achieved.` : n > 1100 ? `${n} words is long. Aim for 1–2 pages (about 400–900 words) and cut older or less relevant detail.` : `${n} words — a good length.`);
+  // Real CVs run 300-1,000 words; under 150 an ATS and a recruiter have almost nothing to go on
+  add('length', 'Length', n < 150 ? 'fail' : n < 250 || n > 1100 ? 'warn' : 'pass',
+    n < 250 ? `${n} words is ${n < 150 ? 'far too' : 'very'} short. Add detail about what you did and achieved.` : n > 1100 ? `${n} words is long. Aim for 1–2 pages (about 400–900 words) and cut older or less relevant detail.` : `${n} words — a good length.`);
 
   const email = EMAIL.test(t);
   const phone = hasPhone(t);
@@ -95,7 +97,8 @@ export function quickChecks(text, job = null) {
   if (!sections.summary?.length) add('summary', 'Professional summary', 'warn', 'No summary found. Two or three lines at the top saying who you are and what you offer help recruiters skim.');
 
   const ranges = t.match(DATE_RANGE) || [];
-  add('dates', 'Dates for each role', ranges.length >= 1 ? 'pass' : 'warn',
+  // Without dates an ATS cannot count years of experience, which most job filters use
+  add('dates', 'Dates for each role', ranges.length >= 1 ? 'pass' : 'fail',
     ranges.length ? `${ranges.length} date range${ranges.length === 1 ? '' : 's'} found (e.g. "${ranges[0]}").` : 'No date ranges found. Write dates like "Jan 2021 – Present" so your experience can be measured.');
 
   const expLines = [...(sections.experience || []), ...(sections.projects || [])];
@@ -104,9 +107,15 @@ export function quickChecks(text, job = null) {
   add('impact', 'Measurable results', quantified >= 3 ? 'pass' : quantified >= 1 ? 'warn' : 'fail',
     quantified >= 3 ? `${quantified} lines include numbers, such as percentages, money or scale.` : `Only ${quantified} line${quantified === 1 ? '' : 's'} with numbers. Show results: "cut load time by 40%", "managed a budget of $200k", "served 10,000 users".`);
 
-  const weak = [...new Set((t.match(WEAK) || []).map((w) => w.toLowerCase()))];
-  add('verbs', 'Strong action verbs', weak.length ? 'warn' : 'pass',
+  const weak = [...new Set((t.match(WEAK) || []).map((w) => w.toLowerCase().replace(/\.$/, '')))];
+  add('verbs', 'Strong action verbs', weak.length >= 3 ? 'fail' : weak.length ? 'warn' : 'pass',
     weak.length ? `Weak phrases found: ${weak.map((w) => `"${w}"`).join(', ')}. Start lines with action verbs such as "Led", "Built", "Reduced", "Launched".` : 'No weak filler phrases found.');
+
+  // How much the CV says about the work itself: two vague lines are not an experience section
+  const expWords = words(expLines.join(' '));
+  const expDetail = expLines.length ? expWords : Math.round(n * 0.5);
+  add('depth', 'Experience detail', expDetail >= 80 ? 'pass' : expDetail >= 40 ? 'warn' : 'fail',
+    expDetail >= 80 ? `${expDetail} words describe your experience and projects.` : `Only ${expDetail} words describe your experience. Give each role 3–5 bullets on what you did, how, and the result.`);
 
   const pronouns = (t.match(FIRST_PERSON) || []).length;
   if (pronouns > 4) add('pronouns', 'Concise style', 'warn', `"I", "my" or "me" appears ${pronouns} times. CV bullet points usually leave them out.`);
@@ -124,7 +133,7 @@ export function quickChecks(text, job = null) {
 
   let jobMatch;
   if (job) {
-    const match = scoreApplication(job, { resumeText: t });
+    const match = known === undefined ? scoreApplication(job, { resumeText: t }) : known;
     if (match) {
       jobMatch = { title: job.title, score: match.score, matched: match.matched, missingMustHave: match.missingMustHave, missingNiceToHave: match.missingNiceToHave, yearsExperience: match.yearsExperience };
       add('keywords', `Keywords for ${job.title}`, match.missingMustHave.length ? 'fail' : match.missingNiceToHave.length ? 'warn' : 'pass',
@@ -135,7 +144,7 @@ export function quickChecks(text, job = null) {
 
   const points = { pass: 1, warn: 0.5, fail: 0 };
   const score = Math.round((checks.reduce((s, c) => s + points[c.status], 0) / checks.length) * 100);
-  return { score, checks, stats: { words: n, dateRanges: ranges.length, quantifiedLines: quantified, sections: Object.keys(sections).filter((s) => s !== 'header' && sections[s].length) }, jobMatch };
+  return { score, checks, stats: { words: n, dateRanges: ranges.length, quantifiedLines: quantified, skillItems, sections: Object.keys(sections).filter((s) => s !== 'header' && sections[s].length) }, jobMatch };
 }
 
 // ---------------------------------------------------------------------------

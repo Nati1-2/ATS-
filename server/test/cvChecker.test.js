@@ -31,7 +31,7 @@ test('a weak CV gets specific, fixable warnings', () => {
   const r = quickChecks('Experience\nI was responsible for various tasks and I worked on my projects. Date of birth: 1990\nI helped with things.');
   assert.equal(status(r, 'contact'), 'fail');
   assert.equal(status(r, 'impact'), 'fail');
-  assert.equal(status(r, 'verbs'), 'warn');
+  assert.equal(status(r, 'verbs'), 'fail', 'three or more weak phrases');
   assert.match(r.checks.find((c) => c.id === 'verbs').detail, /"responsible for"/);
   assert.equal(status(r, 'personal'), 'warn');
   assert.equal(status(r, 'sections'), 'warn');

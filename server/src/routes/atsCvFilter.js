@@ -14,6 +14,35 @@ const MAX_SCANNED = 500;
 // Text read from a scanned PDF by AI is not what an ATS would see, so it counts as unreadable here
 const atsText = (app) => (app.resumeTextSource === 'ai' ? '' : app.resumeText);
 
+// Ratings are kept per version of the application and of the job (and per month, as "Present" dates grow),
+// so filtering, sorting and paging don't re-read and re-rate every CV
+const CACHE_MAX = 5000;
+const ratings = new Map();
+const stamp = (d) => (d ? new Date(d).getTime() : 0);
+const ratingKey = (app, job) => `${app._id}:${stamp(app.updatedAt)}:${job?._id ?? ''}:${stamp(job?.updatedAt)}:${new Date().toISOString().slice(0, 7)}`;
+function remember(key, value) {
+  ratings.delete(key);
+  ratings.set(key, value);
+  if (ratings.size > CACHE_MAX) ratings.delete(ratings.keys().next().value);
+  return value;
+}
+
+/** The parts of the ATS rating the list shows. */
+function summarise(rating) {
+  return {
+    atsScore: rating.score,
+    grade: rating.grade,
+    decision: rating.decision,
+    keywordScore: rating.components.find((c) => c.key === 'requirements')?.score ?? null,
+    knockouts: rating.knockouts,
+    holds: rating.holds ?? [],
+    components: rating.components.map(({ key, label, weight, score, detail }) => ({ key, label, weight, score, detail })),
+    keywords: rating.keywords,
+    improvements: rating.improvements.map(({ id, area, severity, knockout, problem, fix, gain }) => ({ id, area, severity, knockout, problem, fix, gain })),
+    checks: rating.checks.map(({ id, label, status }) => ({ id, label, status })),
+  };
+}
+
 /**
  * ATS CV Filter: filter applicants' CVs by a rule-based ATS rating (utils/atsScore.js), never AI.
  * Filters: job, result (ATS decision: pass / review / reject), minAts (ATS score), mustPass (a check id that must pass), sort.
@@ -26,20 +55,39 @@ router.get('/', async (req, res) => {
   const match = {};
   if (typeof job === 'string' && /^[a-f\d]{24}$/i.test(job)) match.job = new mongoose.Types.ObjectId(job);
 
+  // CV text is only loaded for CVs not rated yet
   const apps = await Application.find(match)
-    .select('+resumeText resumeTextSource stage createdAt candidate job resume.originalName')
+    .select('stage createdAt updatedAt candidate job resume.originalName')
     .populate('candidate', 'fullName email')
     .sort({ createdAt: -1 })
     .limit(MAX_SCANNED)
     .lean();
   const jobIds = [...new Set(apps.map((a) => a.job?.toString()).filter(Boolean))];
   const jobs = new Map((await Job.find({ _id: { $in: jobIds } }).lean()).map((j) => [j._id.toString(), j]));
+  const jobOf = (a) => jobs.get(a.job?.toString()) ?? null;
+
+  const rated = new Map();
+  for (const a of apps) {
+    const key = ratingKey(a, jobOf(a));
+    if (a.candidate && ratings.has(key)) rated.set(a._id.toString(), remember(key, ratings.get(key)));
+  }
+  const unrated = apps.filter((a) => a.candidate && !rated.has(a._id.toString()));
+  if (unrated.length) {
+    const texts = new Map(
+      (await Application.find({ _id: { $in: unrated.map((a) => a._id) } }).select('+resumeText resumeTextSource').lean()).map((a) => [a._id.toString(), a])
+    );
+    for (const [i, a] of unrated.entries()) {
+      const j = jobOf(a);
+      rated.set(a._id.toString(), remember(ratingKey(a, j), summarise(rateCv(atsText(texts.get(a._id.toString()) ?? {}), j, { fileName: a.resume?.originalName }))));
+      // Let other requests run while a large batch is rated
+      if (i % 50 === 49) await new Promise((r) => setImmediate(r));
+    }
+  }
 
   let rows = apps
     .filter((a) => a.candidate)
     .map((a) => {
-      const j = jobs.get(a.job?.toString()) ?? null;
-      const rating = rateCv(atsText(a), j, { fileName: a.resume?.originalName });
+      const j = jobOf(a);
       return {
         _id: a._id,
         stage: a.stage,
@@ -47,15 +95,7 @@ router.get('/', async (req, res) => {
         candidate: a.candidate,
         job: j && { _id: j._id, title: j.title },
         fileName: a.resume?.originalName,
-        atsScore: rating.score,
-        grade: rating.grade,
-        decision: rating.decision,
-        keywordScore: rating.components.find((c) => c.key === 'requirements')?.score ?? null,
-        knockouts: rating.knockouts,
-        components: rating.components.map(({ key, label, weight, score, detail }) => ({ key, label, weight, score, detail })),
-        keywords: rating.keywords,
-        improvements: rating.improvements.map(({ id, area, severity, knockout, problem, fix, gain }) => ({ id, area, severity, knockout, problem, fix, gain })),
-        checks: rating.checks.map(({ id, label, status }) => ({ id, label, status })),
+        ...rated.get(a._id.toString()),
       };
     });
 

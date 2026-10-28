@@ -76,6 +76,38 @@ const SYNONYM_GROUPS = [
   ['git', 'github', 'gitlab'],
   ['linux'],
   ['saas', 'software as a service'],
+  // Finance and accounting
+  ['financial reporting', 'financial statements', 'financial statement', 'profit and loss', 'p&l', 'balance sheet', 'income statement'],
+  ['ifrs', 'international financial reporting standards'],
+  ['gaap', 'generally accepted accounting principles'],
+  ['reconciliation', 'reconciliations', 'bank reconciliation', 'bank reconciliations', 'reconciling'],
+  ['accounts payable', 'a/p', 'payables'],
+  ['accounts receivable', 'a/r', 'receivables'],
+  ['audit', 'audits', 'auditing'],
+  ['tax', 'taxation', 'vat', 'tax filing', 'tax returns', 'withholding tax'],
+  ['bookkeeping', 'book keeping', 'bookkeeper'],
+  ['payroll', 'payroll processing'],
+  ['budgeting', 'budget', 'budgets', 'forecasting'],
+  ['acca', 'association of chartered certified accountants'],
+  ['cpa', 'certified public accountant'],
+  // Customer service and sales
+  ['customer service', 'customer support', 'client service', 'customer care', 'serving customers', 'served customers', 'helpdesk', 'help desk'],
+  ['communication', 'communication skills', 'communications', 'communicating'],
+  ['complaint resolution', 'resolving complaints', 'resolve complaints', 'handling complaints', 'handle complaints', 'complaints'],
+  ['call centre', 'call center', 'contact centre', 'contact center'],
+  ['zendesk', 'freshdesk'],
+  // General business
+  ['microsoft office', 'ms office', 'office 365', 'microsoft 365'],
+  ['stakeholder management', 'stakeholder engagement', 'stakeholders'],
+  ['data analysis', 'data analytics', 'analysing data', 'analyzing data', 'analysed data', 'analyzed data'],
+  ['data visualization', 'data visualisation'],
+  ['procurement', 'purchasing', 'sourcing'],
+  ['supply chain', 'logistics'],
+  ['human resources', 'hr'],
+  ['recruitment', 'recruiting', 'talent acquisition'],
+  // Healthcare
+  ['patient care', 'patient management'],
+  ['registered nurse', 'rn'],
 ];
 
 const SYNONYMS = new Map();
@@ -268,7 +300,7 @@ export function estimateYears(sectionLines, structured, now = new Date()) {
 export const EDUCATION_LEVELS = [
   { value: 'high_school', label: 'High school', rank: 1, rx: /\b(high school|secondary school|grade 12|ged|a[- ]levels?)\b/i },
   { value: 'diploma', label: 'Diploma / Associate', rank: 2, rx: /\b(diploma|associate'?s? degree|associate of|hnd)\b/i },
-  { value: 'bachelor', label: "Bachelor's degree", rank: 3, rx: /\b(bachelor'?s?|b\.?\s?sc|bsc|b\.s\.|b\.a\.|ba in|b\.?\s?eng|beng|b\.?\s?tech|btech|undergraduate degree|licentiate)\b/i },
+  { value: 'bachelor', label: "Bachelor's degree", rank: 3, rx: /\b(bachelor'?s?|b\.?\s?sc|bsc|b\.s\.|b\.a\.?|ba(?=\s*\(hons?\)|\s+(?:in\s+|of\s+)?[a-z])|bba|llb|b\.?\s?com|b\.?\s?eng|beng|b\.?\s?tech|btech|undergraduate degree|licentiate)\b/i },
   { value: 'master', label: "Master's degree", rank: 4, rx: /\b(master'?s?(?! of ceremon)|m\.?\s?sc|msc|m\.s\.|mba|m\.?\s?eng|meng|m\.a\.|ma in|m\.?\s?tech|mtech|mphil)\b/i },
   { value: 'phd', label: 'PhD / Doctorate', rank: 5, rx: /\b(ph\.?\s?d|doctorate|doctor of philosophy|dphil)\b/i },
 ];

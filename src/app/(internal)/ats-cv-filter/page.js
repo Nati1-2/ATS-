@@ -223,6 +223,8 @@ function UploadCheck({ jobs }) {
             </div>
           </div>
 
+          {result.decision === 'review' && result.holds?.length > 0 && <p className="mt-3 text-sm font-medium text-amber-700">Not passed automatically: {result.holds.join(' · ')}</p>}
+
           {result.knockouts.length > 0 && (
             <div className="mt-3">
               <Alert>
@@ -289,7 +291,7 @@ function AtsCvFilter() {
 
       <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Stat label="CVs scanned" value={data?.scanned} hint={data?.capped ? 'Most recent applications only' : undefined} />
-        <Stat label="Passed ATS" value={data?.decisions.pass} hint="75%+ and no knockouts" />
+        <Stat label="Passed ATS" value={data?.decisions.pass} hint="75%+, no knockouts, enough detail" />
         <Stat label="Rejected by ATS" value={data?.decisions.reject} hint="Knockout or under 50%" />
       </div>
 
@@ -391,6 +393,7 @@ function AtsCvFilter() {
                         {a.fileName && ` · ${a.fileName}`}
                       </p>
                       {a.knockouts.length > 0 && <p className="mt-1.5 text-xs font-medium text-rose-700">{a.knockouts.join(' · ')}</p>}
+                      {a.decision === 'review' && a.holds?.length > 0 && <p className="mt-1.5 text-xs font-medium text-amber-700">Not passed automatically: {a.holds.join(' · ')}</p>}
                       <details className="group mt-2">
                         <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-blue-700 hover:underline">
                           <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" aria-hidden />
